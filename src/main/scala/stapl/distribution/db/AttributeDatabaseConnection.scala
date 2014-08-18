@@ -329,7 +329,7 @@ class AttributeDatabaseConnection(host: String, port: Int, database: String, use
    */
   def storeAttribute(entityId: String, cType: AttributeContainerType, name: String, value: LocalDateTime): Unit = {
     val v = value.toString()
-    AttributeDatabaseConnection.this.storeAttribute(entityId, cType, name, v)
+    storeAttribute(entityId, cType, name, v)
   }
   
   /**

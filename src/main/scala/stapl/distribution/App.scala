@@ -29,6 +29,8 @@ import org.joda.time.LocalDateTime
 import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.distribution.cache.AttributeCache
+import stapl.core.pdp.TimestampGenerator
+import stapl.core.pdp.SimpleTimestampGenerator
 
 /**
  * @author ${user.name}
@@ -38,9 +40,10 @@ object App {
   def main(args: Array[String]) {
     //resetDB
 
-    testSingle
+    //testSingle
+    testActors
   }
-  
+
   def resetDB {
     import stapl.core.examples.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
 
@@ -50,7 +53,7 @@ object App {
     db.cleanStart
     db.storeAttribute("maarten", subject.get("roles"), List("medical_personnel", "physician")) // FIXME WTF, no idea why "subject.roles" gives the error "errornous or inaccessible type"
     db.commit
-    db.close    
+    db.close
   }
 
   def testActors {
@@ -58,7 +61,11 @@ object App {
 
     val system = ActorSystem("Barista")
 
-    val router = system.actorOf(RoundRobinPool(5).props(Props(classOf[PDPActor], policy)), "router")
+    val cache = new AttributeCache("127.0.0.1")
+
+    val timestampGenerator = system.actorOf(Props(classOf[TimestampGeneratorActor]))
+
+    val router = system.actorOf(RoundRobinPool(5).props(Props(classOf[PDPActor], policy, cache, timestampGenerator)), "router")
 
     val ctx = new RequestCtx("maarten", "view", "doc123",
       // leave out the roles to test the database
@@ -88,8 +95,8 @@ object App {
 
     val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
     db.open
-    
-    val cache = new AttributeCache
+
+    val cache = new AttributeCache("127.0.0.1")
 
     val finder = new AttributeFinder
     finder += new DatabaseAttributeFinderModule(db, cache)
@@ -105,41 +112,7 @@ object App {
       resource.operator_triggered_emergency -> false,
       resource.indicates_emergency -> true)
 
-    val result = pdp.evaluate(123, ctx)
+    val result = pdp.evaluate(ctx)
     println(result)
   }
-
 }
-
-sealed trait PolicyEvaluationProtocol
-case class Evaluate(policyId: String, ctx: RequestCtx) extends PolicyEvaluationProtocol
-object Evaluate {
-  def apply(policyId: String, subjectId: String, actionId: String, resourceId: String,
-    extraAttributes: (Attribute, ConcreteValue)*): Evaluate = {
-    val ctx = new RequestCtx(subjectId, actionId, resourceId, extraAttributes: _*)
-    Evaluate(policyId, ctx)
-  }
-}
-case class EvaluationResult(policyId: String, result: Result) extends PolicyEvaluationProtocol
-
-/**
- * The Scala actor that wraps a PDP and is able to evaluate policies on request.
- */
-class PDPActor(policy: AbstractPolicy) extends Actor with ActorLogging {
-
-  val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
-  db.open
-
-  val finder = new AttributeFinder
-  finder += new DatabaseAttributeFinderModule(db, null) // TODO fixme
-  val pdp = new PDP(policy, finder)
-
-  def receive = {
-    case Evaluate(policyId, ctx) => {
-      //log.info(f"Worker $this processed $ctx");
-      val result = pdp.evaluate(ctx)
-      sender ! EvaluationResult(policyId, result)
-    }
-  }
-}
-

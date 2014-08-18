@@ -10,6 +10,7 @@ import stapl.core.ListAttribute
 import stapl.core.String
 import stapl.core.SimpleAttribute
 import stapl.core.Number
+import com.hazelcast.config.MapConfig
 
 object AttributeCacheTest {
 
@@ -17,7 +18,7 @@ object AttributeCacheTest {
     val subject = stapl.core.subject
     subject.roles = ListAttribute(String)
     subject.id = SimpleAttribute(Number)
-    
+
     val attributeCache = new AttributeCache
     attributeCache.storeAttribute(1, "maarten", subject.roles, List("role1"))
     println("1: " + attributeCache.getCompleteCache)
@@ -31,14 +32,22 @@ object AttributeCacheTest {
 /**
  * Class used for caching attributes in Hazelcast.
  */
-class AttributeCache {
+class AttributeCache(clusterMembers: String*) {
 
-  val cfg = new Config();
+  private val cfg = new Config();
   cfg.getNetworkConfig.getJoin.getMulticastConfig.setEnabled(false)
   cfg.getNetworkConfig.getJoin.getTcpIpConfig.setEnabled(true)
-  cfg.getNetworkConfig.getJoin.getTcpIpConfig.addMember("127.0.0.1") // TODO this should be updated for distribution
-  val hazelcast = Hazelcast.newHazelcastInstance(cfg)
-  
+  for (member <- clusterMembers) {
+    cfg.getNetworkConfig.getJoin.getTcpIpConfig.addMember(member)
+  }
+  private val mapCfg = new MapConfig();
+  mapCfg.setName("attribute-cache");
+  mapCfg.setBackupCount(0);
+  mapCfg.getMaxSizeConfig().setSize(0); // max_integer IMPORTANT: we assume that the cache will be big enough for all uses
+  mapCfg.setTimeToLiveSeconds(0); // infinite TTL
+  cfg.addMapConfig(mapCfg)
+  private val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+
   /**
    * The actual distributed map that we will be using as attribute cache.
    * The attributes are cached based on the evaluation id. For each evaluation
@@ -46,7 +55,7 @@ class AttributeCache {
    * to its value. Each attribute is saved in the map as the concatenation of the
    * entity id and the attribute name (result of toString()).
    */
-  val attributeMap: IMap[Long, Map[String, ConcreteValue]] = hazelcast.getMap("attributes")
+  val attributeMap: IMap[Long, Map[String, ConcreteValue]] = hazelcast.getMap("attribute-cache")
 
   /**
    * Returns the complete attribute cache. For testing purposes only,
@@ -60,7 +69,7 @@ class AttributeCache {
     }
     result
   }
-  
+
   /**
    * Helper method to construct the key of a certain entityId and attribute combination.
    */
@@ -128,7 +137,7 @@ class AttributeCache {
       cachedAttributes.get(toKey(entityId, attribute))
     }
   }
-  
+
   /**
    * Removes all cached values for the given evaluation id from the cache and
    * returns the cached values.
@@ -137,7 +146,7 @@ class AttributeCache {
    */
   def removeAttributes(evaluationId: Long): Map[String, ConcreteValue] = {
     val current = attributeMap.remove(evaluationId)
-    if(current == null) {
+    if (current == null) {
       // instead of null, return an empty map
       Map[String, ConcreteValue]()
     } else {
