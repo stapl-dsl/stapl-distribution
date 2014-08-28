@@ -45,7 +45,7 @@ object App {
   }
 
   def resetDB {
-    import stapl.core.examples.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
+    import stapl.examples.policies.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
 
     // set up db    
     val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
@@ -57,7 +57,7 @@ object App {
   }
 
   def testActors {
-    import stapl.core.examples.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
+    import stapl.examples.policies.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
 
     val system = ActorSystem("Barista")
 
@@ -91,7 +91,7 @@ object App {
   }
 
   def testSingle {
-    import stapl.core.examples.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
+    import stapl.examples.policies.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
 
     val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
     db.open
