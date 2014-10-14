@@ -6,10 +6,23 @@ import java.nio.ByteOrder;
 import com.hazelcast.nio.ObjectDataOutput;
 
 public class MockObjectDataOutput implements ObjectDataOutput {
+	
+	private String commands = "";
+	
+	protected void addCommand(String command) {
+		if(commands.length() > 0) {
+			commands += " - ";
+		}
+		commands += command;
+	}
+	
+	public String getCommands() {
+		return commands;
+	}
 
 	@Override
 	public void write(int b) throws IOException {
-		System.out.println("Int: " + b);
+		addCommand("Int: " + b);
 	}
 
 	@Override
@@ -24,7 +37,7 @@ public class MockObjectDataOutput implements ObjectDataOutput {
 
 	@Override
 	public void writeBoolean(boolean v) throws IOException {
-		System.out.println("Boolean: " + v);
+		addCommand("Boolean: " + v);
 	}
 
 	@Override
@@ -45,7 +58,7 @@ public class MockObjectDataOutput implements ObjectDataOutput {
 
 	@Override
 	public void writeInt(int v) throws IOException {
-		System.out.println("Int: " + v);
+		addCommand("Int: " + v);
 	}
 
 	@Override
@@ -60,7 +73,7 @@ public class MockObjectDataOutput implements ObjectDataOutput {
 
 	@Override
 	public void writeDouble(double v) throws IOException {
-		System.out.println("Double: " + v);
+		addCommand("Double: " + v);
 	}
 
 	@Override
@@ -76,7 +89,7 @@ public class MockObjectDataOutput implements ObjectDataOutput {
 
 	@Override
 	public void writeUTF(String s) throws IOException {
-		System.out.println("UTF: " + s);
+		addCommand("UTF: " + s);
 	}
 
 	@Override

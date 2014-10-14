@@ -15,110 +15,6 @@ import com.hazelcast.nio.serialization.SerializationServiceBuilder
 import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
 
-object CoordinatorTest {
-
-  def main(args: Array[String]) {
-	  testSerialization    
-  }
-  
-  def testSerialization {
-    val config = new Config()
-    config.setProperty(GroupProperties.PROP_WAIT_SECONDS_BEFORE_JOIN, "1")
-    val h = Hazelcast.newHazelcastInstance(config)
-    val customerMap = h.getMap("customers")
-    val ss = new SerializationServiceBuilder().setConfig(config.getSerializationConfig()).build()
-    val out = new ByteArrayOutputStream
-    val objectOut = ss.createObjectDataOutputStream(out)    
-    
-    val subject = stapl.core.subject
-    subject.string = SimpleAttribute(String)
-    subject.strings = ListAttribute(String)
-    subject.boolean = SimpleAttribute(Bool)
-    subject.booleans = ListAttribute(Bool)
-    subject.number = SimpleAttribute(Number)
-    subject.numbers = ListAttribute(Number)
-    subject.datetime = SimpleAttribute(DateTime)
-    subject.datetimes = ListAttribute(DateTime)
-
-    val r1 = new ToBeEvaluatedRequest("maarten", "view", "doc123",
-        subject.string -> "role1",
-        subject.strings -> List("role1", "role2"),
-        subject.boolean -> true,
-        subject.booleans -> List(true, false, true),
-        subject.number -> 1.23,
-        subject.numbers -> List(1.23, 4.56),
-        subject.datetime -> new LocalDateTime(2014, 6, 24, 9, 0, 0),
-        subject.datetimes -> List(new LocalDateTime(2014, 6, 24, 9, 0, 0), new LocalDateTime(2014, 6, 24, 17, 0, 0)))
-    
-    println("*** Before")
-    println(r1.toString)
-    
-    r1.writeData(objectOut)
-    
-    val in = new ByteArrayInputStream(out.toByteArray())
-    val objectIn = ss.createObjectDataInputStream(in)
-    
-    val r2 = new ToBeEvaluatedRequest("", "", "")
-    r2.readData(objectIn)
-    
-    println
-    println("*** After")
-    println(r2.toString)
-    
-    h.shutdown()
-  }
-
-  def testAttributeValueSerialization {
-    val subject = stapl.core.subject
-    subject.string = SimpleAttribute(String)
-    subject.strings = ListAttribute(String)
-    subject.boolean = SimpleAttribute(Bool)
-    subject.booleans = ListAttribute(Bool)
-    subject.number = SimpleAttribute(Number)
-    subject.numbers = ListAttribute(Number)
-    subject.datetime = SimpleAttribute(DateTime)
-    subject.datetimes = ListAttribute(DateTime)
-
-    val r = new ToBeEvaluatedRequest("", "", "")
-
-    // TODO: major flaw in our current design: a lot of type errors can occur
-    // in the lines below, for example Lists for SimpleAttributes, String for 
-    // Number attributes etc. => now this is never checked in any of the code
-    // Solution: add checks on the values or even better, use a type system.
-    println("String")
-    val attributeValue1: (Attribute, ConcreteValue) = (subject.string, "role1")
-    r.writeAttributeValue(attributeValue1, new MockObjectDataOutput)
-    println
-    println("List[String]")
-    val attributeValue2: (Attribute, ConcreteValue) = (subject.strings, List("role1", "role2"))
-    r.writeAttributeValue(attributeValue2, new MockObjectDataOutput)
-    println
-    println("Boolean")
-    val attributeValue3: (Attribute, ConcreteValue) = (subject.boolean, true)
-    r.writeAttributeValue(attributeValue3, new MockObjectDataOutput)
-    println
-    println("List[Boolean]")
-    val attributeValue4: (Attribute, ConcreteValue) = (subject.booleans, List(true, false, true))
-    r.writeAttributeValue(attributeValue4, new MockObjectDataOutput)
-    println
-    println("Number")
-    val attributeValue5: (Attribute, ConcreteValue) = (subject.number, 1.23)
-    r.writeAttributeValue(attributeValue5, new MockObjectDataOutput)
-    println
-    println("List[Number]")
-    val attributeValue6: (Attribute, ConcreteValue) = (subject.numbers, List(1.23, 4.56))
-    r.writeAttributeValue(attributeValue6, new MockObjectDataOutput)
-    println
-    println("DateTime")
-    val attributeValue7: (Attribute, ConcreteValue) = (subject.datetime, new LocalDateTime(2014, 6, 24, 9, 0, 0))
-    r.writeAttributeValue(attributeValue7, new MockObjectDataOutput)
-    println
-    println("List[DateTime]")
-    val attributeValue8: (Attribute, ConcreteValue) = (subject.datetimes, List(new LocalDateTime(2014, 6, 24, 9, 0, 0), new LocalDateTime(2014, 6, 24, 17, 0, 0)))
-    r.writeAttributeValue(attributeValue8, new MockObjectDataOutput)
-  }
-}
-
 /**
  * Class used for representing the coordinator PDP. This coordinator should
  * be started first and all other slave PDPs should connect to this one.
@@ -203,6 +99,7 @@ class ToBeEvaluatedRequest(private var _subjectId: String, private var _actionId
           for (i <- 0 until length) {
             values ::= in.readUTF()
           }
+          values = values.reverse
           (attribute, new StringSeqImpl(values))
         }
         case Number => {
@@ -210,6 +107,7 @@ class ToBeEvaluatedRequest(private var _subjectId: String, private var _actionId
           for (i <- 0 until length) {
             values ::= in.readDouble()
           }
+          values = values.reverse
           (attribute, new DoubleSeqImpl(values))
         }
         case Bool => {
@@ -217,6 +115,7 @@ class ToBeEvaluatedRequest(private var _subjectId: String, private var _actionId
           for (i <- 0 until length) {
             values ::= in.readBoolean()
           }
+          values = values.reverse
           (attribute, new BoolSeqImpl(values))
         }
         case DateTime => {
@@ -224,6 +123,7 @@ class ToBeEvaluatedRequest(private var _subjectId: String, private var _actionId
           for (i <- 0 until length) {
             values ::= new DateTimeImpl(new LocalDateTime(in.readUTF()))
           }
+          values = values.reverse
           (attribute, new DateTimeSeqImpl(values))
         }
         case _ => throw new UnsupportedOperationException
