@@ -28,10 +28,13 @@ import stapl.core.ENVIRONMENT
 import org.joda.time.LocalDateTime
 import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.distribution.db.AttributeDatabaseConnection
-import stapl.distribution.cache.AttributeCache
 import stapl.core.pdp.TimestampGenerator
 import stapl.core.pdp.SimpleTimestampGenerator
+import stapl.distribution.cache.ConcurrentAttributeCache
 
+/**
+ * The protocol for communicating with policy evaluation actors.
+ */
 sealed trait PolicyEvaluationProtocol
 case class Evaluate(policyId: String, ctx: RequestCtx) extends PolicyEvaluationProtocol
 object Evaluate {
@@ -46,13 +49,13 @@ case class EvaluationResult(policyId: String, result: Result) extends PolicyEval
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request.
  */
-class PDPActor(policy: AbstractPolicy, cache: AttributeCache, timestampGenerator: ActorRef) extends Actor with ActorLogging {
+class PolicyEvaluationActor(policy: AbstractPolicy, cache: ConcurrentAttributeCache, timestampGenerator: ActorRef) extends Actor with ActorLogging {
 
   val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
   db.open
 
   val finder = new AttributeFinder
-  finder += new DatabaseAttributeFinderModule(db, cache) // TODO fixme
+  finder += new DatabaseAttributeFinderModule(db)
   val pdp = new PDP(policy, finder)
 
   implicit val timeout = Timeout(2.second)

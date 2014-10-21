@@ -28,16 +28,32 @@ import stapl.core.ENVIRONMENT
 import org.joda.time.LocalDateTime
 import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.distribution.db.AttributeDatabaseConnection
-import stapl.distribution.cache.AttributeCache
 import stapl.core.pdp.TimestampGenerator
 import stapl.core.pdp.SimpleTimestampGenerator
+import stapl.distribution.cache.LocalConcurrentAttributeCache
 
 /**
  * @author ${user.name}
  */
 object App {
 
+  /**
+   * Arguments:
+   * - First argument: "centralized" | "distributed"
+   * - Second argument: the number of local threads
+   * - If distributed: next arguments are the IP addresses of the other clients in the cluster
+   */
   def main(args: Array[String]) {
+    if(args(0) == "centralized") {
+      val nbThreads = args(1).toInt
+      //nbTreahd
+    } else if(args(0) == "distributed") {
+      val nbThreads = args(1).toInt
+      
+    } else {
+      throw new IllegalArgumentException("the first argument should be \"centralized\" or \"distributed\"")
+    }
+    
     //resetDB
 
     //testSingle
@@ -61,11 +77,11 @@ object App {
 
     val system = ActorSystem("Barista")
 
-    val cache = new AttributeCache("127.0.0.1")
+    val cache = new LocalConcurrentAttributeCache
 
     val timestampGenerator = system.actorOf(Props(classOf[TimestampGeneratorActor]))
 
-    val router = system.actorOf(RoundRobinPool(5).props(Props(classOf[PDPActor], policy, cache, timestampGenerator)), "router")
+    val router = system.actorOf(RoundRobinPool(5).props(Props(classOf[PolicyEvaluationActor], policy, cache, timestampGenerator)), "router")
 
     val ctx = new RequestCtx("maarten", "view", "doc123",
       // leave out the roles to test the database
@@ -96,10 +112,8 @@ object App {
     val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
     db.open
 
-    val cache = new AttributeCache("127.0.0.1")
-
     val finder = new AttributeFinder
-    finder += new DatabaseAttributeFinderModule(db, cache)
+    finder += new DatabaseAttributeFinderModule(db)
     val pdp = new PDP(policy, finder)
 
     val ctx = new RequestCtx("maarten", "view", "doc123",

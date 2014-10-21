@@ -5,7 +5,6 @@ import stapl.core.pdp.EvaluationCtx
 import stapl.core._
 import stapl.core.ConcreteValue
 import grizzled.slf4j.Logging
-import stapl.distribution.cache.AttributeCache
 
 /**
  * A class used for fetching attributes from a database during policy evaluation.
@@ -17,7 +16,7 @@ import stapl.distribution.cache.AttributeCache
  * 			An *opened* database connection. This class is not responsible for opening or closing
  *    		the database connections.
  */
-class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection, val attributeCache: AttributeCache) extends AttributeFinderModule with Logging {
+class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection) extends AttributeFinderModule with Logging {
   
   /**
    * Fetch an attribute from the database. 
@@ -41,18 +40,7 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
     val attribute = Attribute(cType, name, aType, multiValued)    
     // for the log messages
     val attributeName = s"$entityId.${attribute.toString()}"
-    val cachedValue = attributeCache.getAttribute(ctx.evaluationId, entityId, attribute)
-    cachedValue match {
-      case Some(value) => {
-        info(s"Found value for $attributeName in the cache: $value")
-        value
-      }
-      case None => // nothing to do, just continue
-    }
     
-    //
-    // Not in the cache => use the database
-    //
     var toReturn: Option[ConcreteValue] = None
     
     aType match {
@@ -119,15 +107,7 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
       case Day => throw new UnsupportedOperationException("Day attributes are not supported for now") // TODO implement
       case Time => throw new UnsupportedOperationException("Time attributes are not supported for now") // TODO implement
     }
-    
-    // Finally, store the found value in the cache IF we found at least one value
-    toReturn match {
-      case None => warn(s"No values found for $attributeName")
-      case Some(value) => {
-        attributeCache.storeAttribute(ctx.evaluationId, entityId, attribute, value)
-    	info(s"Found value for attribute $attributeName and stored in attribute cache: $value")
-      }
-    }
+
     toReturn
   }
 
