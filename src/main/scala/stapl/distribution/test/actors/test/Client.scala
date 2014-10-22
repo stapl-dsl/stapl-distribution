@@ -8,7 +8,10 @@ import akka.actor.Props
 import scala.concurrent.duration._
 import akka.actor.ActorRef
 import com.typesafe.config.ConfigFactory
-import scala.util.{Success, Failure}
+import scala.util.{ Success, Failure }
+import akka.pattern.ask
+import akka.util.Timeout
+import scala.concurrent.Future
 
 object ClientApp {
   def main(args: Array[String]) {
@@ -33,10 +36,10 @@ object ClientApp {
       system.actorSelection(s"akka.tcp://STAPL-coordinator@coordinator.stapl:2552/user/coordinator")
     implicit val dispatcher = system.dispatcher
     selection.resolveOne(3.seconds).onComplete {
-      case Success(master) =>
-        import ClientMasterProtocol._
-        val client = system.actorOf(Props(classOf[Client], clientName, master))
-        println(s"Client $clientName up and running")
+      case Success(coordinator) =>
+        import ClientProtocol._
+        val client = system.actorOf(Props(classOf[Client], clientName, coordinator))
+        println(s"Client $clientName up and running at $hostname:$port")
         client ! Go
       case Failure(t) =>
         t.printStackTrace()
@@ -45,17 +48,27 @@ object ClientApp {
   }
 }
 
-class Client(id: String, master: ActorRef) extends Actor with ActorLogging {
+class Client(id: String, coordinator: ActorRef) extends Actor with ActorLogging {
 
-  import ClientMasterProtocol._
+  import ClientProtocol._
+  import ClientCoordinatorProtocol._
+
+  implicit val timeout = Timeout(2.second)
+  implicit val ec = context.dispatcher
 
   def receive = {
     case Go => // launch a test of 100 messages 
       log.info("Go")
       for (i <- 0 to 100) {
-        master ! "gvd" //s"$id-$i"
+        val f: Future[Any] = coordinator ? AuthorizationRequest(s"subject-of-client-$id", "view", "doc123")
+        f.onComplete {
+          case Success(AuthorizationDecision(decision)) => log.info(s"Result of policy evaluation was: $decision")
+          case Success(x) => log.warning(s"No idea what I received here: $x")
+          case Failure(t) => 
+            log.warning(s"Something went wrong: $t => default deny")            
+        }
       }
-    case msg => log.info(s"Received $msg")
+    case msg => log.info(s"Received unknown message: $msg")
   }
 
   log.info(s"Client created: $this")
