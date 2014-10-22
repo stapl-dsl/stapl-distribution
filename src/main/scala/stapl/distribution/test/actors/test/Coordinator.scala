@@ -37,16 +37,16 @@ object CoordinatorApp {
 /**
  * Class used for temporarily storing the clients that sent an
  * authorization request so that we can pass the decision back
- * to the client later on. 
+ * to the client later on.
  */
 class ClientAuthorizationRequestManager {
-  
+
   import scala.collection.mutable.Map
-  
+
   private var counter = 0
-  
-  private val clients: Map[Int,ActorRef] = Map()
-  
+
+  private val clients: Map[Int, ActorRef] = Map()
+
   /**
    * Stores the actor in the cache and returns the generated
    * id of its authorization request.
@@ -57,7 +57,7 @@ class ClientAuthorizationRequestManager {
     counter += 1
     id
   }
-  
+
   /**
    * Returns the actor that sent the authorization request with the given id
    * and removes this actor from the map.
@@ -66,7 +66,57 @@ class ClientAuthorizationRequestManager {
     val result = clients(id)
     clients.remove(id)
     result
-  } 
+  }
+}
+
+/**
+ * Class used for printing statistics about the coordinator.
+ */
+class Statistics {
+  val totalStart = System.nanoTime()
+  var intervalStart = System.nanoTime()
+
+  var totalCounter = 0L
+  var intervalCounter = 0L
+  
+  def tick() = {
+    totalCounter += 1
+    intervalCounter += 1L
+    printThroughput
+  }
+
+  def totalCount = totalCounter
+  def intervalCount = intervalCounter
+
+  /**
+   * The duration in ms
+   */
+  def totalDuration = {
+    val now = System.nanoTime()
+    (now.toDouble - totalStart.toDouble) / 1000000.0
+  }
+  def intervalDuration = {
+    val now = System.nanoTime()
+    (now.toDouble - intervalStart.toDouble) / 1000000.0
+  }
+  
+  /**
+   * In requests/sec
+   */
+  def totalThroughput = totalCount.toDouble / (totalDuration/1000)
+  def intervalThroughput = intervalCount.toDouble / (intervalDuration/1000)
+  
+  def resetInterval = {
+    intervalStart = System.nanoTime()
+    intervalCounter = 0
+  }
+
+  def printThroughput {
+    if (intervalCount % 1000 == 0 && intervalCount > 1000 && intervalDuration > 1000) {
+      println(f"Coordinator: total throughput = $totalThroughput%2.2f requests/sec, last interval throughput = $intervalThroughput%2.2f")
+      resetInterval
+    }
+  }
 }
 
 class Coordinator extends Actor with ActorLogging {
@@ -83,12 +133,17 @@ class Coordinator extends Actor with ActorLogging {
    * as the memory of who asked for it
    */
   val workQ = Queue.empty[Tuple2[ActorRef, PolicyEvaluationRequest]]
-  
+
   /**
-   * Holds the mapping between the clients and the authorization requests 
-   * they sent. 
+   * Holds the mapping between the clients and the authorization requests
+   * they sent.
    */
   val clients = new ClientAuthorizationRequestManager
+  
+  /**
+   * Some statistics of the throughput
+   */
+  val stats = new Statistics
 
   /**
    * Notifies workers that there's work available, provided they're
@@ -137,11 +192,13 @@ class Coordinator extends Actor with ActorLogging {
     /**
      *  Worker has completed its work and we can clear it out
      */
-    case WorkIsDone(worker) =>
+    case WorkerIsDoneAndRequestsWork(worker) =>
       if (!workers.contains(worker))
-        log.error("Blurgh! {} said it's done work but we didn't know about him", worker)
+        log.error(s"Blurgh! $worker said it's done work but we didn't know about him")
       else
         workers += (worker -> None)
+        // send the worker some work
+        self ! WorkerRequestsWork(worker)
 
     /**
      *  A worker died.  If he was doing anything then we need
@@ -150,7 +207,7 @@ class Coordinator extends Actor with ActorLogging {
      */
     case Terminated(worker) =>
       if (workers.contains(worker) && workers(worker) != None) {
-        log.error("Blurgh! {} died while processing {}", worker, workers(worker))
+        log.error(s"Blurgh! $worker died while processing ${workers(worker)}")
         // Send the work that it was doing back to ourselves for processing
         val (workSender, work) = workers(worker).get
         self.tell(work, workSender)
@@ -165,20 +222,21 @@ class Coordinator extends Actor with ActorLogging {
       val id = clients.store(sender)
       workQ.enqueue(sender -> new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId))
       notifyWorkers()
-      
+
     /**
-     * 
+     *
      */
     case PolicyEvaluationResult(id, result) =>
       log.debug(s"Received authorization decision: ($id, $result)")
       val client = clients.get(id)
       // TODO: fulfill obligations here
       client ! AuthorizationDecision(result.decision)
-      
+      stats.tick
+
     /**
      * Unknown messages
      */
     case x => log.error(s"Unknown message received: $x")
-      
+
   }
 }

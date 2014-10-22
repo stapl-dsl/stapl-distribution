@@ -10,40 +10,10 @@ import akka.actor.Props
 import scala.concurrent.duration._
 import scala.util.{ Success, Failure }
 
-object WorkerApp {
-
-  def main(args: Array[String]) {
-    val workerName = args(0)
-    val hostname = args.lift(1) match {
-      case Some(h) => h
-      case None => "127.0.0.1"
-    }
-    val port = args.lift(2) match {
-      case Some(p) => p
-      case None => 2552
-    }
-
-    val defaultConf = ConfigFactory.load()
-    val customConf = ConfigFactory.parseString(s"""
-        akka.remote.netty.tcp.hostname = $hostname
-        akka.remote.netty.tcp.port = $port
-      """).withFallback(defaultConf)
-    val system = ActorSystem("Worker", customConf)
-
-    val selection =
-      system.actorSelection(s"akka.tcp://STAPL-coordinator@coordinator.stapl:2552/user/coordinator")
-    implicit val dispatcher = system.dispatcher
-    selection.resolveOne(3.seconds).onComplete {
-      case Success(coordinator) =>
-        val worker = system.actorOf(Props(classOf[Foreman], coordinator), "worker")
-        println(s"Worker $workerName up and running at $hostname:$port")
-      case Failure(t) =>
-        t.printStackTrace()
-        system.shutdown
-    }
-  }
-}
-
+/**
+ * Abstract super class for all workers. A worker interacts with a work manager
+ * that queues and distributes the work. 
+ */
 abstract class Worker(coordinator: ActorRef)
   extends Actor with ActorLogging {
   import CoordinatorWorkerProtocol._
@@ -76,8 +46,7 @@ abstract class Worker(coordinator: ActorRef)
       log.error("Yikes. Master told me to do work, while I'm working.")
     case WorkComplete(result) => // Our derivation has completed its task
       log.debug("Work is complete.  Result {}.", result)
-      coordinator ! WorkIsDone(self) // TODO kan dit niet samengevoegd worden?
-      coordinator ! WorkerRequestsWork(self)
+      coordinator ! WorkerIsDoneAndRequestsWork(self) // TODO kan dit niet samengevoegd worden?
       // We're idle now
       context.become(idle)
   }

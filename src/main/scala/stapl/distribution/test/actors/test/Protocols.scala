@@ -8,7 +8,7 @@ import stapl.core.Result
  * For communicating with clients (mainly for testing purposes) 
  */
 object ClientProtocol {
-  case class Go
+  case class Go(nbRequests: Int)
 }
 
 /**
@@ -32,7 +32,7 @@ object CoordinatorWorkerProtocol {
   // Messages from Workers
   case class WorkerCreated(worker: ActorRef)
   case class WorkerRequestsWork(worker: ActorRef)
-  case class WorkIsDone(worker: ActorRef)
+  case class WorkerIsDoneAndRequestsWork(worker: ActorRef)
   case class PolicyEvaluationResult(id: Int, result: Result)
 
   // Messages to Workers
