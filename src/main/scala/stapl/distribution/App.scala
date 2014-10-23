@@ -79,29 +79,29 @@ object App {
 
     val cache = new LocalConcurrentAttributeCache
 
-    val timestampGenerator = system.actorOf(Props(classOf[TimestampGeneratorActor]))
-
-    val router = system.actorOf(RoundRobinPool(5).props(Props(classOf[PolicyEvaluationActor], policy, cache, timestampGenerator)), "router")
-
-    val ctx = new RequestCtx("maarten", "view", "doc123",
-      // leave out the roles to test the database
-      //subject.roles -> List("medical_personnel", "physician"),
-      subject.triggered_breaking_glass -> false,
-      subject.department -> "cardiology",
-      resource.type_ -> "patientstatus",
-      resource.owner_withdrawn_consents -> List("subject1", "subject2", "subject3"),
-      resource.operator_triggered_emergency -> false,
-      resource.indicates_emergency -> true)
-
-    implicit val timeout = Timeout(2.second)
-    implicit val executionContext = system.dispatcher
-
-    for (i <- 1 to 100) {
-      val result: Future[Any] = router ? Evaluate(f"$i", ctx)
-      result.onSuccess {
-        case EvaluationResult(policyId, result) => println(s"Result for policyId $policyId was $result")
-      }
-    }
+//    val timestampGenerator = system.actorOf(Props(classOf[TimestampGeneratorActor]))
+//
+//    val router = system.actorOf(RoundRobinPool(5).props(Props(classOf[PolicyEvaluationActor], policy, cache, timestampGenerator)), "router")
+//
+//    val ctx = new RequestCtx("maarten", "view", "doc123",
+//      // leave out the roles to test the database
+//      //subject.roles -> List("medical_personnel", "physician"),
+//      subject.triggered_breaking_glass -> false,
+//      subject.department -> "cardiology",
+//      resource.type_ -> "patientstatus",
+//      resource.owner_withdrawn_consents -> List("subject1", "subject2", "subject3"),
+//      resource.operator_triggered_emergency -> false,
+//      resource.indicates_emergency -> true)
+//
+//    implicit val timeout = Timeout(2.second)
+//    implicit val executionContext = system.dispatcher
+//
+//    for (i <- 1 to 100) {
+//      val result: Future[Any] = router ? Evaluate(f"$i", ctx)
+//      result.onSuccess {
+//        case EvaluationResult(policyId, result) => println(s"Result for policyId $policyId was $result")
+//      }
+//    }
 
     //system.shutdown()
   }

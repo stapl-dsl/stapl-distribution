@@ -1,4 +1,4 @@
-package stapl.distribution.test.actors.test
+package stapl.distribution.util
 
 import Numeric._
 
