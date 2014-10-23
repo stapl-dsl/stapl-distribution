@@ -6,17 +6,30 @@ import Numeric._
  * Class used for representing a timer that times code evaluation,
  * keeps all values of the test and provides some statistics about 
  * these timings.
+ * 
+ * The timer can register timings in two ways:
+ * 1. start() and stop()
+ * 2. time()
+ * 
+ * These cannot be used in parallel!
  */
 class Timer {
   
   // timings in milliseconds
   var timings = List[Double]()
+  
+  var t0 = 0L
+  var t1 = 0L
+  
+  def start() = t0 = System.nanoTime()
+  def stop() = t1 = System.nanoTime()
+  def duration() = (t1.toDouble - t0.toDouble) / 1000000.0
 
   def time[R](block: => R): R = {
-    val t0 = System.nanoTime()
+    start
     val result = block // call-by-name
-    val t1 = System.nanoTime()
-    timings ::= (t1.toDouble - t0.toDouble) / 1000000.0
+    stop
+    timings ::= duration 
     result
   }
   

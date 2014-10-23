@@ -17,9 +17,9 @@ import akka.routing.BroadcastPool
 import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
-import stapl.distribution.components.Client
+import stapl.distribution.components.SequentialClient
 
-object ClientApp {
+object SequentialClientApp {
   def main(args: Array[String]) {
     val clientName = args(0)
     val nbThreads = args(1).toInt
@@ -45,8 +45,8 @@ object ClientApp {
     selection.resolveOne(3.seconds).onComplete {
       case Success(coordinator) =>
         import components.ClientProtocol._
-        val clients = system.actorOf(BroadcastPool(nbThreads).props(Props(classOf[Client],coordinator)), "clients")
-        clients ! Go(1)
+        val clients = system.actorOf(BroadcastPool(nbThreads).props(Props(classOf[SequentialClient],coordinator)), "clients")
+        clients ! Go(10000)
         println(s"$nbThreads client threads up and running at $hostname:$port")
       case Failure(t) =>
         t.printStackTrace()
