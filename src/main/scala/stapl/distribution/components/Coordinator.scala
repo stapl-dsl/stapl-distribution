@@ -87,6 +87,7 @@ class ForemanManager {
    * Set the given foreman as busy on the given work.
    */
   def foremanStartedWorkingOn(foreman: ActorRef, work: List[PolicyEvaluationRequest]) =
+    // FIXME not correct, this should be an append if the foreman already has work
     foremen(foreman) = Some(work)
 
   /**
@@ -103,6 +104,11 @@ class ForemanManager {
 /**
  * Class used for representing the Coordinator that manages all foremen
  * and ensures correct concurrency.
+ * 
+ * TODO: the work mgmt is not correct yet: the list of requests assigned 
+ * to a foremen is not extended with newly assigned work and is also not cleared
+ * if the foreman has finished certain jobs except if he sends a "Finished" message
+ * (so not in the "give me more" message") 
  */
 class Coordinator extends Actor with ActorLogging {
   import ClientCoordinatorProtocol._

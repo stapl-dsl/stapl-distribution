@@ -72,15 +72,15 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
   private def processRequest(request: PolicyEvaluationRequest): Unit = {
     // TODO insert actual policy evaluation here 
     // Do some work to simulate policy evaluation here
-    for (i <- 0 until 5) { // 5 attributes
-      // some computation (around 0.2ms)
-      var factorial: BigInt = 0
-      for (i <- 0 until 10000) {
-        factorial *= i
-      }
-      // some attribute fetch
-      Thread sleep 2
-    }
+//    for (i <- 0 until 5) { // 5 attributes
+//      // some computation (around 0.2ms)
+//      var factorial: BigInt = 0
+//      for (i <- 0 until 10000) {
+//        factorial *= i
+//      }
+//      // some attribute fetch
+//      Thread sleep 2
+//    }
     // pass the decision directly to the coordinator...
     coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, Result(Permit))
     // ... and request new work from the foreman...
