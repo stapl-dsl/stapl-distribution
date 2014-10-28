@@ -7,18 +7,27 @@ import scala.math.BigInt.int2bigInt
 import stapl.distribution.util.Timer
 import akka.actor.ActorSystem
 import akka.actor.Props
+import stapl.distribution.db.AttributeDatabaseConnection
+import stapl.distribution.db.entities.EntityManager
+import stapl.core.pdp.AttributeFinder
+import stapl.distribution.db.DatabaseAttributeFinderModule
+import stapl.examples.policies.EhealthPolicy
+import stapl.core.Result
+import stapl.core.ConcreteValue
+import stapl.core.Attribute
+import stapl.core.pdp.PDP
 
 object Test extends App {
 
-    val system = ActorSystem("test")
-    implicit val dispatcher = system.dispatcher
-//    implicit val timeout = Timeout(2 seconds)
-  
-    val actor = system.actorOf(Props[Actor2])
-    
-    actor ! "ping"
-    actor ! "pang"
-  
+//    val system = ActorSystem("test")
+//    implicit val dispatcher = system.dispatcher
+////    implicit val timeout = Timeout(2 seconds)
+//  
+//    val actor = system.actorOf(Props[Actor2])
+//    
+//    actor ! "ping"
+//    actor ! "pang"
+
 //    val f = actor ? "ping"
 //    val decision: Decision = Await.ready(f, 3 seconds).value match {
 //      case None =>
@@ -41,8 +50,8 @@ object Test extends App {
 //      }
 //    }
 //    println(s"Decision = $decision")
-  
-    system.shutdown
+
+//    system.shutdown
 }
 
 class TestActor extends Actor {

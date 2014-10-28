@@ -31,7 +31,8 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
     val entityId = cType match {
       case SUBJECT => ctx.subjectId
       case RESOURCE => ctx.resourceId
-      case _ => throw new RuntimeException("Only SUBJECT and RESOURCE attributes are supported. Given attribute container type: " + cType.toString())
+      case ACTION => return None // we don't support this
+      case ENVIRONMENT => return None // we don't support this
     }
     
     //
