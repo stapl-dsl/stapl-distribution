@@ -151,14 +151,17 @@ class PolicyTest extends AssertionsForJUnit {
   }
   
   @Test def testMaarten {
+    // Permit because allowed to access the PMS and own data
     assertEquals(Result(Permit), pdp.evaluate(maarten, "view", maartenStatus))
   }
   
   @Test def testMaartenToWouter {
+    // Deny because not own data
     assertEquals(Result(Deny), pdp.evaluate(maarten, "view", wouterStatus))
   }
   
   @Test def testWouterToWouter {
-    assertEquals(Result(Permit), pdp.evaluate(wouter, "view", wouterStatus))
+    // Deny because not allowed to access the PMS
+    assertEquals(Result(Deny), pdp.evaluate(wouter, "view", wouterStatus))
   }
 }

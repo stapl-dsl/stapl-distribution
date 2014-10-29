@@ -65,7 +65,7 @@ class EntityManager extends Logging {
   // Maarten: discharged two weeks ago, has access to the PMS, has
   // withdrawn consent for cardiologist1. GP1 is responsible for Maarten.
   val maarten = createDischargedPatient("patient:maarten", true,
-    d.twoWeeksAgo())
+    d.threeDaysAgo())
   val maartenStatus = createPatientStatus(
     "patientstatus:of:maarten", maarten, d.daysAgo(2), "good",
     false, false)
@@ -133,17 +133,17 @@ class EntityManager extends Logging {
   // 18. CardologyNurse2 has no relationship to a patient 
   //
   // 19. Maarten is/was in the care unit of CardologyNurse3 
-  cardiologyNurse3.patientsAdmittedInCareUnit ::= maarten
+  cardiologyNurse3.patientsAdmittedInNurseUnit ::= maarten
   // 20. Wouter is/was in the care unit of CardologyNurse3 
-  cardiologyNurse3.patientsAdmittedInCareUnit ::= wouter
+  cardiologyNurse3.patientsAdmittedInNurseUnit ::= wouter
   // 21. Erna is/was in the care unit of CardologyNurse3 
-  cardiologyNurse3.patientsAdmittedInCareUnit ::= erna
+  cardiologyNurse3.patientsAdmittedInNurseUnit ::= erna
   // 22. ElderCareNurse1 has no relationship to a patient
   //
   // 23. Maarten is admitted in the nurse unit of ElderCareNurse2
   // and she is responsible for Maarten
-  elderCareNurse2.patientsAdmittedInCareUnit ::= maarten
-  elderCareNurse2.patientsAdmittedInCareUnit ::= maarten
+  elderCareNurse2.patientsAdmittedInNurseUnit ::= maarten
+  elderCareNurse2.patientsAdmittedInNurseUnit ::= maarten
 
   /**
    * ********************************
@@ -216,7 +216,7 @@ class EntityManager extends Logging {
     shiftStop: LocalDateTime) = {
     val result = new Nurse(id, department, allowedToAccessPMS, location,
       shiftStart, shiftStop, false)
-    result.patientsAdmittedInCareUnit ::= randomId()
+    result.patientsAdmittedInNurseUnit ::= randomId()
     result.responsiblePatients ::= randomId()
     storeEntity(result)
     result

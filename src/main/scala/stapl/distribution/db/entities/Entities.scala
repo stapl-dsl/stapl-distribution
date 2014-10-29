@@ -98,7 +98,7 @@ class Nurse(_id: String,
   var shiftStart: LocalDateTime,
   var shiftStop: LocalDateTime,
   _triggeredBreakingGlass: Boolean,
-  var patientsAdmittedInCareUnit: List[String] = List.empty,
+  var patientsAdmittedInNurseUnit: List[String] = List.empty,
   var responsiblePatients: List[String] = List.empty) extends MedicalPersonnel(_id, _department, _triggeredBreakingGlass) {
   roles ::= "nurse"
     
@@ -108,7 +108,7 @@ class Nurse(_id: String,
     db.storeAttribute(id, EhealthPolicy.subject.location, location)
     db.storeAttribute(id, EhealthPolicy.subject.shift_start, shiftStart)
     db.storeAttribute(id, EhealthPolicy.subject.shift_stop, shiftStop)
-    db.storeAttribute(id, EhealthPolicy.subject.admitted_patients_in_care_unit, patientsAdmittedInCareUnit)
+    db.storeAttribute(id, EhealthPolicy.subject.admitted_patients_in_nurse_unit, patientsAdmittedInNurseUnit)
     db.storeAttribute(id, EhealthPolicy.subject.responsible_patients, responsiblePatients)
   }    
 }
