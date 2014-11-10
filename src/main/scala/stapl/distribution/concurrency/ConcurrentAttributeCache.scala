@@ -1,11 +1,7 @@
-package stapl.distribution.cache
+package stapl.distribution.concurrency
 
 import stapl.core.ConcreteValue
 import stapl.core.Attribute
-import stapl.core.ListAttribute
-import stapl.core.String
-import stapl.core.SimpleAttribute
-import stapl.core.Number
 import scala.collection.concurrent.TrieMap
 import com.hazelcast.config.Config
 import com.hazelcast.config.MapConfig

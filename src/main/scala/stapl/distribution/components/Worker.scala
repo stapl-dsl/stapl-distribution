@@ -11,13 +11,14 @@ import scala.concurrent.duration._
 import scala.concurrent.Future
 import org.joda.time.LocalDateTime
 import stapl.core.AbstractPolicy
-import stapl.distribution.cache.ConcurrentAttributeCache
+import stapl.distribution.concurrency.ConcurrentAttributeCache
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.core.pdp.AttributeFinder
 import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.core.pdp.PDP
 import stapl.core.Result
 import stapl.core.Permit
+import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request of a Foreman.
@@ -27,8 +28,10 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
   val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
   db.open
 
+  // TODO use attribute cache here if necessary
   val finder = new AttributeFinder
   finder += new DatabaseAttributeFinderModule(db)
+  finder += new HardcodedEnvironmentAttributeFinderModule
   val pdp = new PDP(policy, finder)
 
   import ForemanWorkerProtocol._
@@ -70,19 +73,11 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
    *
    */
   private def processRequest(request: PolicyEvaluationRequest): Unit = {
-    // TODO insert actual policy evaluation here 
-    // Do some work to simulate policy evaluation here
-//    for (i <- 0 until 5) { // 5 attributes
-//      // some computation (around 0.2ms)
-//      var factorial: BigInt = 0
-//      for (i <- 0 until 10000) {
-//        factorial *= i
-//      }
-//      // some attribute fetch
-//      Thread sleep 2
-//    }
+    // TODO implement evaluating the policy asked for by the request
+    // TODO implement extra attributes
+    val result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId)
     // pass the decision directly to the coordinator...
-    coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, Result(Permit))
+    coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, result)
     // ... and request new work from the foreman...
     foreman ! WorkerIsDoneAndRequestsWork(self)
     // ... and change our mode

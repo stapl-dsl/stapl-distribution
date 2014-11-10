@@ -1,4 +1,4 @@
-package stapl.distribution.cache;
+package stapl.distribution.concurrency;
 
 import java.util.Map;
 import java.util.Queue;

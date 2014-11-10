@@ -30,7 +30,7 @@ import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.core.pdp.TimestampGenerator
 import stapl.core.pdp.SimpleTimestampGenerator
-import stapl.distribution.cache.LocalConcurrentAttributeCache
+import stapl.distribution.concurrency.LocalConcurrentAttributeCache
 
 /**
  * @author ${user.name}

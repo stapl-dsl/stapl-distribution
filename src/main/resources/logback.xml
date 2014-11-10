@@ -7,7 +7,7 @@
     </encoder>
   </appender> 
   
-  <logger name="stapl.core" level="DEBUG"/>
+  <logger name="stapl.core" level="OFF"/>
 
   <root level="INFO">
     <appender-ref ref="STDOUT" />

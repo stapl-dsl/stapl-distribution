@@ -5,7 +5,6 @@ import org.junit.Before
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.Assert._
-
 import com.hazelcast.config.Config
 import com.hazelcast.config.QueueConfig
 import com.hazelcast.core.Hazelcast
@@ -20,6 +19,7 @@ import com.hazelcast.instance.GroupProperties
 import com.hazelcast.nio.serialization.SerializationServiceBuilder
 import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
+import stapl.distribution.concurrency.DistributedAttributeCache
 
 class SerializationTests extends AssertionsForJUnit {
 

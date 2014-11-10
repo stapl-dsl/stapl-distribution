@@ -11,6 +11,7 @@ import akka.actor.actorRef2Scala
 import scala.math.BigInt.int2bigInt
 import stapl.distribution.components.Foreman
 import com.typesafe.config.ConfigFactory
+import stapl.examples.policies.EhealthPolicy
 
 case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
@@ -56,7 +57,7 @@ object ForemanApp {
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val worker = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers), "foreman")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, EhealthPolicy.naturalPolicy), "foreman")
           println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers")
         case Failure(t) =>
           t.printStackTrace()

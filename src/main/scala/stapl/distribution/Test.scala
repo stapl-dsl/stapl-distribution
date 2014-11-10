@@ -19,39 +19,43 @@ import stapl.core.pdp.PDP
 
 object Test extends App {
 
-//    val system = ActorSystem("test")
-//    implicit val dispatcher = system.dispatcher
-////    implicit val timeout = Timeout(2 seconds)
-//  
-//    val actor = system.actorOf(Props[Actor2])
-//    
-//    actor ! "ping"
-//    actor ! "pang"
+  import concurrent.Future
+  import concurrent.ExecutionContext.Implicits.global
+  val f: Future[String] = Future { "Hello world!" }
 
-//    val f = actor ? "ping"
-//    val decision: Decision = Await.ready(f, 3 seconds).value match {
-//      case None =>
-//        // should never happen, but just in case...
-//        println("WTF: None received from ping???")
-//        Deny
-//      case Some(result) => result match {
-//        case Success("pong") =>
-//          println("pong received")
-//          Permit
-//        case Success(x) =>
-//          println(s"wft, received: $x")
-//          Deny
-//        case Failure(e: AskTimeoutException) =>
-//          println("Timeout => default deny")
-//          Deny
-//        case Failure(e) =>
-//          println("Another failure? => default deny anyway")
-//          Deny
-//      }
-//    }
-//    println(s"Decision = $decision")
+  //    val system = ActorSystem("test")
+  //    implicit val dispatcher = system.dispatcher
+  ////    implicit val timeout = Timeout(2 seconds)
+  //  
+  //    val actor = system.actorOf(Props[Actor2])
+  //    
+  //    actor ! "ping"
+  //    actor ! "pang"
 
-//    system.shutdown
+  //    val f = actor ? "ping"
+  //    val decision: Decision = Await.ready(f, 3 seconds).value match {
+  //      case None =>
+  //        // should never happen, but just in case...
+  //        println("WTF: None received from ping???")
+  //        Deny
+  //      case Some(result) => result match {
+  //        case Success("pong") =>
+  //          println("pong received")
+  //          Permit
+  //        case Success(x) =>
+  //          println(s"wft, received: $x")
+  //          Deny
+  //        case Failure(e: AskTimeoutException) =>
+  //          println("Timeout => default deny")
+  //          Deny
+  //        case Failure(e) =>
+  //          println("Another failure? => default deny anyway")
+  //          Deny
+  //      }
+  //    }
+  //    println(s"Decision = $decision")
+
+  //    system.shutdown
 }
 
 class TestActor extends Actor {
@@ -62,7 +66,7 @@ class TestActor extends Actor {
 }
 
 class Actor2 extends TestActor {
-  
+
   override def receive = super.receive orElse {
     case "pang" => println("pang")
   }

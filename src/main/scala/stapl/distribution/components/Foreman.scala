@@ -15,6 +15,7 @@ import akka.actor.ActorLogging
 import akka.actor.Actor
 import scala.collection.mutable.Queue
 import scala.collection.mutable.Set
+import stapl.core.AbstractPolicy
 
 /**
  * Class used for managing workers.
@@ -74,24 +75,40 @@ class WorkerManager {
  * the coordinator and distributes the work received from that coordinator
  * amongst multiple policy evaluators on its machine.
  */
-class Foreman(coordinator: ActorRef, nbWorkers: Int) extends Actor with ActorLogging {
+class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy) extends Actor with ActorLogging {
 
   /**
-   * The queue of work for our Workers.
+   * The queues of work for our Workers: one queue of work received by the
+   * foreman, one queue of work received by the workers (intermediate requests).
    */
-  val workQ = Queue.empty[PolicyEvaluationRequest]
+  val externalWorkQ = Queue.empty[PolicyEvaluationRequest]
+  val internalWorkQ = Queue.empty[PolicyEvaluationRequest]
 
   /**
    * The management of our workers.
    */
   val workers = new WorkerManager
+  
+  /**
+   * Returns whether we should preventively request more work because of 
+   * the current contents of the queues and the current number of workers. 
+   */
+  def shouldPreventivelyRefill = 
+    // our strategy: count the number of requests from the foreman and the
+    // number of requests of internal workers and compare that to the number of
+    // workers at hand so that there is always new work for the workers to work on
+    // when they finish. However, requests from the foreman are likely to 
+    // take longer than intermediate policy evaluation requests of the workers,
+    // so weigh those less.
+    (externalWorkQ.size + math.floor(internalWorkQ.size/2.0)) <= workers.size
 
   /**
    * Notifies workers that there's work available, provided they're
    * not already working on something
    */
   def notifyWorkers(): Unit = {
-    if (!workQ.isEmpty) {
+    if (!externalWorkQ.isEmpty && !internalWorkQ.isEmpty) {
+      // we have some work, be it received from a worker or from a foreman
       workers.idle foreach { _ ! ForemanWorkerProtocol.WorkIsReady }
     }
   }
@@ -102,7 +119,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int) extends Actor with ActorLog
   override def preStart() = {
     // create our workers
     1 to nbWorkers foreach { _ =>
-      workers += context.actorOf(Props(classOf[Worker], coordinator, self, null, null)) // TODO pass policy and attribute cache
+      workers += context.actorOf(Props(classOf[Worker], coordinator, self, policy, null)) // TODO pass policy and attribute cache
     }
     // notify the coordinator
     coordinator ! CoordinatorForemanProtocol.ForemanCreated(self)
@@ -133,7 +150,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int) extends Actor with ActorLog
      */
     case CoordinatorForemanProtocol.WorkToBeDone(requests: List[PolicyEvaluationRequest]) =>
       log.debug(s"The coordinator sent work: $requests")
-      workQ ++= requests
+      externalWorkQ ++= requests
       notifyWorkers
 
     /**
@@ -146,10 +163,10 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int) extends Actor with ActorLog
       workers.setIdle(worker)
       self ! ForemanWorkerProtocol.WorkerRequestsWork(worker)
       // keep the coordinator up-to-date and ask for more work if needed
-      if(workQ.isEmpty) {
+      if(externalWorkQ.isEmpty && internalWorkQ.isEmpty) {
         log.debug("We're out of work, notify the coordinator of this")
         coordinator ! CoordinatorForemanProtocol.ForemanIsDoneAndRequestsWork(self, workers.size)
-      } else if (workQ.size <= (workers.size / 2)) {
+      } else if (shouldPreventivelyRefill) {
         log.debug(s"We're not ouf of work yet, but ask for more anyway")
         coordinator ! CoordinatorForemanProtocol.ForemanRequestsWork(self, workers.size)
       }
@@ -161,8 +178,15 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int) extends Actor with ActorLog
      */
     case ForemanWorkerProtocol.WorkerRequestsWork(worker) =>
       log.debug(s"A worker requests work: $worker")
-      if (!workQ.isEmpty) {
-        val work = workQ.dequeue
+      // our prioritization between internal requests and external requests:
+      // give internal requests priority in order to keep the total latency
+      // of policy evaluations minimal
+      if (!internalWorkQ.isEmpty) {
+        val work = internalWorkQ.dequeue
+        worker ! ForemanWorkerProtocol.WorkToBeDone(work)
+        workers.setBusy(worker)
+      } else if (!externalWorkQ.isEmpty) {
+        val work = externalWorkQ.dequeue
         worker ! ForemanWorkerProtocol.WorkToBeDone(work)
         workers.setBusy(worker)
       }

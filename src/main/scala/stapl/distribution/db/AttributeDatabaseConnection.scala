@@ -9,6 +9,9 @@ import java.sql.ResultSet
 import stapl.core.AttributeContainerType
 import org.joda.time.LocalDateTime
 import stapl.core.Attribute
+import stapl.core.String
+import stapl.core.Number
+import stapl.core.Bool
 
 class AttributeDatabaseConnection(host: String, port: Int, database: String, username: String, password: String)
   extends Logging {
@@ -252,6 +255,19 @@ class AttributeDatabaseConnection(host: String, port: Int, database: String, use
     }
     r
   }
+  
+  /**
+   * Convenience method for storing attributes: any type of data can be given and this
+   * method will try to cast it depending on the attribute type of the given attribute.  
+   */
+  def storeAnyAttribute(entityId: String, attribute: Attribute, value: Any): Unit = {
+    attribute.aType match {
+      case String => storeAttribute(entityId, attribute, value.asInstanceOf[java.lang.String])
+      case Number => storeAttribute(entityId, attribute, value.asInstanceOf[Int])
+      case Bool => storeAttribute(entityId, attribute, value.asInstanceOf[Boolean])
+      case _ => ??? // TODO
+    }
+  }
 
   /**
    * Stores a string attribute in the database using the connection of this database.
@@ -278,7 +294,6 @@ class AttributeDatabaseConnection(host: String, port: Int, database: String, use
   }
   
   /**
-   * Convenience method for storing attributes. 
    * Stores a string attribute in the database using the connection of this database.
    * Does NOT commit or close.
    */
@@ -292,7 +307,7 @@ class AttributeDatabaseConnection(host: String, port: Int, database: String, use
    * Does NOT commit or close.
    */
   def storeAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Int): Unit = {
-    AttributeDatabaseConnection.this.storeAttribute(entityId, cType, name, "" + value)
+    storeAttribute(entityId, cType, name, "" + value)
   }
   
   /**
@@ -310,7 +325,7 @@ class AttributeDatabaseConnection(host: String, port: Int, database: String, use
    * Does NOT commit or close.
    */
   def storeAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Boolean): Unit = {
-    AttributeDatabaseConnection.this.storeAttribute(entityId, cType, name, if (value) "true" else "false")
+    storeAttribute(entityId, cType, name, if (value) "true" else "false")
   }
   
   /**
@@ -348,7 +363,7 @@ class AttributeDatabaseConnection(host: String, port: Int, database: String, use
    */
   def storeAttribute(entityId: String, cType: AttributeContainerType, name: String, value: List[String]): Unit = {
     for (s <- value) yield {
-      AttributeDatabaseConnection.this.storeAttribute(entityId, cType, name, s);
+      storeAttribute(entityId, cType, name, s);
     }
   }
   

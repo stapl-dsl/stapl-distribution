@@ -18,6 +18,7 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import util.control.Breaks._
+import stapl.distribution.db.entities.EntityManager
 
 class SequentialClient(coordinator: ActorRef) extends Actor with ActorLogging {
 
@@ -29,10 +30,12 @@ class SequentialClient(coordinator: ActorRef) extends Actor with ActorLogging {
 
   val timer = new Timer
   var counter = 0
+  
+  val em = EntityManager()
 
   def sendRequest = {
     timer.time {
-      val f = coordinator ? AuthorizationRequest(s"subject-of-client", "view", "doc123")
+      val f = coordinator ? AuthorizationRequest(em.maarten.id, "view", em.maartenStatus.id)
       val decision: Decision = Await.ready(f, 3 seconds).value match {
         case None =>
           // should never happen, but just in case...
@@ -95,12 +98,14 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with Actor
 
   val timer = new Timer
   var waitingFor = nb
+  
+  val em = EntityManager()
 
   def receive = {
     case "go" =>
       timer.start
       for (i <- 0 to nb) {
-        val f = coordinator ! AuthorizationRequest(s"subject-of-client", "view", "doc123")
+        val f = coordinator ! AuthorizationRequest(em.maarten.id, "view", em.maartenStatus.id)
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
