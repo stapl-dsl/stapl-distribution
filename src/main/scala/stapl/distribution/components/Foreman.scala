@@ -73,7 +73,7 @@ class WorkerManager {
 /**
  * Class used for representing the actor on a machine that communicates with
  * the coordinator and distributes the work received from that coordinator
- * amongst multiple policy evaluators on its machine.
+ * amongst multiple policy evaluator actors on its machine.
  */
 class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy) extends Actor with ActorLogging {
 
