@@ -16,12 +16,59 @@ import stapl.core.Result
 import stapl.core.ConcreteValue
 import stapl.core.Attribute
 import stapl.core.pdp.PDP
+import scala.util.{Try, Success, Failure}
 
 object Test extends App {
 
-  import concurrent.Future
-  import concurrent.ExecutionContext.Implicits.global
-  val f: Future[String] = Future { "Hello world!" }
+  def test = {
+    import concurrent.Future
+    import concurrent.ExecutionContext.Implicits.global
+
+    val f1: Future[String] = Future successful ("f1")
+    f1 map {
+      _ => println(s"f1 finished on Thead ${Thread.currentThread().getId()}")
+    }
+    val f2: Future[String] = f1.value match {
+      // Not completed: 
+      case None => f1
+      // Completed:
+      case Some(x) => x match { 
+        case Failure(e) => Future failed e
+        case Success(s) => Future successful s
+      }
+    }
+    println("after futures")
+    println("====================")
+  }
+  
+  for(i <- 1 to 1000) {
+    test
+  }
+  
+  
+
+//  def test = {
+//    import concurrent.Future
+//    import concurrent.ExecutionContext.Implicits.global
+//
+//    val f1: Future[String] = Future successful ("f1")
+//    f1 map {
+//      _ => println(s"f1 finished on Thead ${Thread.currentThread().getId()}")
+//    }
+//    if (f1.isCompleted) {
+//      f1.value map {
+//        _ map {
+//          x => println(s"f1 finished on Thead ${Thread.currentThread().getId()}")
+//        }
+//      }
+//    }
+//    println("after futures")
+//    println("====================")
+//  }
+//  
+//  for(i <- 1 to 1000) {
+//    test
+//  }
 
   //    val system = ActorSystem("test")
   //    implicit val dispatcher = system.dispatcher
