@@ -107,7 +107,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy) ext
    * not already working on something
    */
   def notifyWorkers(): Unit = {
-    if (!externalWorkQ.isEmpty && !internalWorkQ.isEmpty) {
+    if (!(externalWorkQ.isEmpty && internalWorkQ.isEmpty)) {
       // we have some work, be it received from a worker or from a foreman
       workers.idle foreach { _ ! ForemanWorkerProtocol.WorkIsReady }
     }

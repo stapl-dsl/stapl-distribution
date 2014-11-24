@@ -35,7 +35,15 @@ class Timer {
   
   def count = timings.size
   
-  def mean = grizzled.math.stats.mean(timings: _*)
+  def mean = {
+    if(count == 0) {
+      -1
+    } else if (count == 1) {
+      timings(0)
+    } else {
+      grizzled.math.stats.mean(timings: _*)
+    }
+  }
   
   def stdDev = grizzled.math.stats.sampleStdDev(timings: _*)
   

@@ -50,7 +50,7 @@ object ForemanApp {
         akka.remote.netty.tcp.hostname = ${config.hostname}
         akka.remote.netty.tcp.port = ${config.port}
       """).withFallback(defaultConf)
-      val system = ActorSystem("Worker", customConf)
+      val system = ActorSystem("Foreman", customConf)
 
       val selection =
         system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorHostname}:${config.coordinatorPort}/user/coordinator")
