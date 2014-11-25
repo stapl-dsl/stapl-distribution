@@ -38,6 +38,8 @@ class MockAttributeDatabaseConnection extends AttributeDatabaseConnection {
   override def storeAnyAttribute(entityId: String, attribute: Attribute, value: Any) = {
     receivedAttributeUpdates += new Tuple3(entityId, attribute, value)
   }
+
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: String): Unit = ???
 }
 
 class UpdateAttributesTest extends AssertionsForJUnit with BasicPolicy {

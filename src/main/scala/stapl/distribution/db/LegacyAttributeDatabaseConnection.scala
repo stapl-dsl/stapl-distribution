@@ -218,4 +218,10 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
     }
   }
 
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: String): Unit = ???
+
 }

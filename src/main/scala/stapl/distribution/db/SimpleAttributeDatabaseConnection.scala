@@ -24,7 +24,8 @@ class SimpleAttributeDatabaseConnection(initialConnection: Connection) extends A
 
   private var conn: Connection = initialConnection
   private var getStringAttributeStmt: PreparedStatement = initialConnection.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
-  private var storeAttributeStmt: PreparedStatement = initialConnection.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);");
+  private var storeAttributeStmt: PreparedStatement = initialConnection.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);")
+  private var updateAttributeStmt: PreparedStatement = initialConnection.prepareStatement("UPDATE attributes SET attribute_value=? WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
 
   /**
    * Commits all operations.
@@ -132,6 +133,25 @@ class SimpleAttributeDatabaseConnection(initialConnection: Connection) extends A
       storeAttributeStmt.setString(3, name)
       storeAttributeStmt.setString(4, value)
       storeAttributeStmt.executeUpdate()
+    } catch {
+      case e: SQLException => {
+        error("Cannot execute query.", e)
+        throw new RuntimeException(e)
+      }
+    }
+  }
+
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: String): Unit = {
+    try {
+      updateAttributeStmt.setString(1, value)
+      updateAttributeStmt.setString(2, entityId)
+      updateAttributeStmt.setString(3, cType.toString())
+      updateAttributeStmt.setString(4, name)
+      updateAttributeStmt.executeUpdate()
     } catch {
       case e: SQLException => {
         error("Cannot execute query.", e)

@@ -48,12 +48,30 @@ abstract class AttributeDatabaseConnection extends Logging {
   def getStringAttribute(entityId: String, cType: AttributeContainerType, name: String): List[String]
 
   /**
+   * Fetches a string attribute from the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def getStringAttribute(entityId: String, attribute: Attribute): List[String] = {
+    // TODO should we check the type here?
+    getStringAttribute(entityId, attribute.cType, attribute.name)
+  }
+
+  /**
    * Fetches an integer attribute from the database using the connection of this database.
    * Does NOT commit or close.
    */
-  def getIntegerAttribute(entityId: String, cType: AttributeContainerType, name: String): List[Int] = {
+  def getLongAttribute(entityId: String, cType: AttributeContainerType, name: String): List[Long] = {
     val strings = getStringAttribute(entityId, cType, name);
-    strings.map(s => s.toInt)
+    strings.map(s => s.toLong)
+  }
+
+  /**
+   * Fetches a integer attribute from the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def getIntegerAttribute(entityId: String, attribute: Attribute): List[Long] = {
+    // TODO should we check the type here?
+    getLongAttribute(entityId, attribute.cType, attribute.name)
   }
 
   /**
@@ -67,6 +85,15 @@ abstract class AttributeDatabaseConnection extends Logging {
 
   /**
    * Fetches a boolean attribute from the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def getBooleanAttribute(entityId: String, attribute: Attribute): List[Boolean] = {
+    // TODO should we check the type here?
+    getBooleanAttribute(entityId, attribute.cType, attribute.name)
+  }
+
+  /**
+   * Fetches a date attribute from the database using the connection of this database.
    * Does NOT commit or close.
    */
   def getDateAttribute(entityId: String, cType: AttributeContainerType, name: String): List[LocalDateTime] = {
@@ -84,13 +111,22 @@ abstract class AttributeDatabaseConnection extends Logging {
   }
 
   /**
+   * Fetches a date attribute from the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def getDateAttribute(entityId: String, attribute: Attribute): List[LocalDateTime] = {
+    // TODO should we check the type here?
+    getDateAttribute(entityId, attribute.cType, attribute.name)
+  }
+
+  /**
    * Convenience method for storing attributes: any type of data can be given and this
    * method will try to cast it depending on the attribute type of the given attribute.
    */
   def storeAnyAttribute(entityId: String, attribute: Attribute, value: Any): Unit = {
     attribute.aType match {
       case String => storeAttribute(entityId, attribute, value.asInstanceOf[java.lang.String])
-      case Number => storeAttribute(entityId, attribute, value.asInstanceOf[Int])
+      case Number => storeAttribute(entityId, attribute, value.asInstanceOf[Long])
       case Bool => storeAttribute(entityId, attribute, value.asInstanceOf[Boolean])
       case _ => ??? // TODO
     }
@@ -112,7 +148,7 @@ abstract class AttributeDatabaseConnection extends Logging {
   }
 
   /**
-   * Stores an integer attribute in the database using the connection of this database.
+   * Stores a long attribute in the database using the connection of this database.
    * Does NOT commit or close.
    */
   def storeAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Int): Unit = {
@@ -121,10 +157,28 @@ abstract class AttributeDatabaseConnection extends Logging {
 
   /**
    * Convenience method for storing attributes.
-   * Stores a string attribute in the database using the connection of this database.
+   * Stores a long attribute in the database using the connection of this database.
    * Does NOT commit or close.
    */
   def storeAttribute(entityId: String, attribute: Attribute, value: Int): Unit = {
+    // TODO do we need to check for the type of the attribute here?
+    storeAttribute(entityId, attribute.cType, attribute.name, value)
+  }
+
+  /**
+   * Stores a long attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def storeAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Long): Unit = {
+    storeAttribute(entityId, cType, name, "" + value)
+  }
+
+  /**
+   * Convenience method for storing attributes.
+   * Stores a long attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def storeAttribute(entityId: String, attribute: Attribute, value: Long): Unit = {
     // TODO do we need to check for the type of the attribute here?
     storeAttribute(entityId, attribute.cType, attribute.name, value)
   }
@@ -187,5 +241,84 @@ abstract class AttributeDatabaseConnection extends Logging {
   }
 
   // TODO implement the other List methods
+
+  /**
+   * Convenience method for updating attributes: any type of data can be given and this
+   * method will try to cast it depending on the attribute type of the given attribute.
+   */
+  def updateAnyAttribute(entityId: String, attribute: Attribute, value: Any): Unit = {
+    attribute.aType match {
+      case String => updateAttribute(entityId, attribute, value.asInstanceOf[java.lang.String])
+      case Number => updateAttribute(entityId, attribute, value.asInstanceOf[Long])
+      case Bool => updateAttribute(entityId, attribute, value.asInstanceOf[Boolean])
+      case _ => ??? // TODO
+    }
+  }
+
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: String): Unit
+
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, attribute: Attribute, value: String): Unit = {
+    // TODO do we need to check for the type of the attribute here?
+    updateAttribute(entityId, attribute.cType, attribute.name, value)
+  }
+
+  /**
+   * Updates an integer attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Int): Unit = {
+    updateAttribute(entityId, cType, name, "" + value)
+  }
+
+  /**
+   * Updates a long attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Long): Unit = {
+    updateAttribute(entityId, cType, name, "" + value)
+  }
+
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, attribute: Attribute, value: Long): Unit = {
+    // TODO do we need to check for the type of the attribute here?
+    updateAttribute(entityId, attribute.cType, attribute.name, value)
+  }
+
+  /**
+   * Updates a boolean attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: Boolean): Unit = {
+    updateAttribute(entityId, cType, name, if (value) "true" else "false")
+  }
+
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, attribute: Attribute, value: Boolean): Unit = {
+    // TODO do we need to check for the type of the attribute here?
+    updateAttribute(entityId, attribute.cType, attribute.name, value)
+  }
+
+  /**
+   * Updates a string attribute in the database using the connection of this database.
+   * Does NOT commit or close.
+   */
+  def updateAttribute(entityId: String, cType: AttributeContainerType, name: String, value: LocalDateTime): Unit = {
+    val v = value.toString()
+    updateAttribute(entityId, cType, name, v)
+  }
 
 }

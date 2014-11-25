@@ -17,19 +17,10 @@ import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.core.pdp.PDP
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 import stapl.distribution.db.LegacyAttributeDatabaseConnection
+import stapl.distribution.db.AttributeUpdatesObligationServiceModule
+import stapl.core.pdp.ObligationService
+import stapl.distribution.db.AttributeDatabaseConnectionPool
 
-object ConcurrencyPoliciesTest extends AssertionsForJUnit {
-
-  @BeforeClass def resetDB() {
-    val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
-    db.open
-    db.cleanStart
-    val em = EntityManager()
-    em.persist(db)
-    db.commit
-    db.close
-  }
-}
 class ConcurrencyPoliciesTest extends AssertionsForJUnit {
 
   val em = EntityManager()
@@ -39,14 +30,25 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
   import em._
   import ConcurrencyPolicies._
 
-  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
-  db.open()
+  val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root").getConnection
   val finder = new AttributeFinder
   finder += new DatabaseAttributeFinderModule(db)
   val maxNbAccessesPDPWithDb = new PDP(ConcurrencyPolicies.maxNbAccess, finder)
   val chineseWallPDPWithDb = new PDP(ConcurrencyPolicies.chineseWall, finder)
 
-  // val obligationService = new 
+  val obligationService = new ObligationService
+  obligationService += new AttributeUpdatesObligationServiceModule(db)
+  val maxNbAccessesPDPWithDbAndObligations = new PDP(ConcurrencyPolicies.maxNbAccess, finder, obligationService)
+  val chineseWallPDPWithDbAndObligations = new PDP(ConcurrencyPolicies.chineseWall, finder, obligationService)
+
+  @Before def resetDb {
+    db.cleanStart
+    db.commit
+    em.persist(db)
+    db.commit    
+  }
+  
+  @After def commit = db.commit
 
   @Test def testMaxNbAccesses1 {
     val result = maxNbAccessessPDP.evaluate(subject1.id, "blabla", resourceOfBank1.id,
@@ -88,6 +90,25 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
     val result = maxNbAccessesPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
     assertEquals(Permit, result.decision)
     assertEquals(List(ConcreteUpdateAttributeObligationAction(resourceOfBank1.id, resource.nbAccesses, 1)), result.obligationActions)
+  }
+
+  @Test def testMaxNbAccessesWithDbAndObligations1 {
+    val result = maxNbAccessesPDPWithDbAndObligations.evaluate(subject1.id, "blabla", resourceOfBank1.id)
+    assertEquals(Permit, result.decision)
+    assertEquals(List(), result.obligationActions) // the obligation should be fulfilled
+    assertEquals(List(1), db.getLongAttribute(resourceOfBank1.id, resource.nbAccesses.cType, resource.nbAccesses.name))
+  }
+
+  @Test def testMaxNbAccessesWithDbAndObligations2 {
+    for (i <- 1 to 5) {
+      val result = maxNbAccessesPDPWithDbAndObligations.evaluate(subject1.id, "blabla", resourceOfBank1.id)
+      assertEquals(Permit, result.decision)
+      assertEquals(List(), result.obligationActions) // the obligation should be fulfilled
+      assertEquals(List(i), db.getLongAttribute(resourceOfBank1.id, resource.nbAccesses.cType, resource.nbAccesses.name))
+    }
+    val result = maxNbAccessesPDPWithDbAndObligations.evaluate(subject1.id, "blabla", resourceOfBank1.id)
+    assertEquals(Deny, result.decision)
+    assertEquals(List(), result.obligationActions)
   }
 
   @Test def testChineseWall1 {

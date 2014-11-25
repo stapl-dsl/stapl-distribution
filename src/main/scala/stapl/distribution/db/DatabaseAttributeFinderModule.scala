@@ -61,7 +61,7 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
         }
       }
       case Number => {
-        val result = attributeDb.getIntegerAttribute(entityId, cType, name)
+        val result = attributeDb.getLongAttribute(entityId, cType, name)
         if(! multiValued) {
           // convert list to single value
           if(result.length == 0) {
