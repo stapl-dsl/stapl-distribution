@@ -18,6 +18,18 @@ import stapl.core.pdp.PDP
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 import stapl.distribution.db.LegacyAttributeDatabaseConnection
 
+object ConcurrencyPoliciesTest extends AssertionsForJUnit {
+
+  @BeforeClass def resetDB() {
+    val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+    db.open
+    db.cleanStart
+    val em = EntityManager()
+    em.persist(db)
+    db.commit
+    db.close
+  }
+}
 class ConcurrencyPoliciesTest extends AssertionsForJUnit {
 
   val em = EntityManager()
@@ -26,6 +38,15 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
 
   import em._
   import ConcurrencyPolicies._
+
+  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+  db.open()
+  val finder = new AttributeFinder
+  finder += new DatabaseAttributeFinderModule(db)
+  val maxNbAccessesPDPWithDb = new PDP(ConcurrencyPolicies.maxNbAccess, finder)
+  val chineseWallPDPWithDb = new PDP(ConcurrencyPolicies.chineseWall, finder)
+
+  // val obligationService = new 
 
   @Test def testMaxNbAccesses1 {
     val result = maxNbAccessessPDP.evaluate(subject1.id, "blabla", resourceOfBank1.id,
@@ -61,6 +82,12 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
       resource.nbAccesses -> 5)
     assertEquals(Deny, result.decision)
     assertEquals(List(), result.obligationActions)
+  }
+
+  @Test def testMaxNbAccessesWithDb1 {
+    val result = maxNbAccessesPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
+    assertEquals(Permit, result.decision)
+    assertEquals(List(ConcreteUpdateAttributeObligationAction(resourceOfBank1.id, resource.nbAccesses, 1)), result.obligationActions)
   }
 
   @Test def testChineseWall1 {
@@ -115,5 +142,17 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
       resource.owner -> bank1)
     assertEquals(Deny, result.decision)
     assertEquals(List(), result.obligationActions)
+  }
+
+  @Test def testChineseWall1WithDb {
+    val result = chineseWallPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
+    assertEquals(Permit, result.decision)
+    assertEquals(List(ConcreteAppendAttributeObligationAction(subject1.id, subject.history, "bank1")), result.obligationActions)
+  }
+
+  @Test def testChineseWall2WithDb {
+    val result = chineseWallPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
+    assertEquals(Permit, result.decision)
+    assertEquals(List(ConcreteAppendAttributeObligationAction(subject1.id, subject.history, "bank1")), result.obligationActions)
   }
 }
