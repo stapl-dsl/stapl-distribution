@@ -17,11 +17,12 @@ import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.core.pdp.PDP
 import stapl.examples.policies.EhealthPolicy
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
+import stapl.distribution.db.LegacyAttributeDatabaseConnection
 
 object PolicyTest extends AssertionsForJUnit {
 
   @BeforeClass def resetDB() {
-    val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+    val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
     db.open
     db.cleanStart
     val em = EntityManager()
@@ -32,7 +33,7 @@ object PolicyTest extends AssertionsForJUnit {
 }
 class PolicyTest extends AssertionsForJUnit {
 
-  val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
   val em = EntityManager()
   val finder = new AttributeFinder
   finder += new DatabaseAttributeFinderModule(db)

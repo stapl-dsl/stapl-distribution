@@ -9,7 +9,7 @@ import scala.util.{ Success, Failure }
 import akka.actor.Props
 import akka.actor.actorRef2Scala
 import scala.math.BigInt.int2bigInt
-import stapl.distribution.components.Foreman
+import stapl.distribution.components.SimpleForeman
 import com.typesafe.config.ConfigFactory
 import stapl.examples.policies.EhealthPolicy
 
@@ -57,8 +57,8 @@ object SimpleForemanApp {
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbParallelEvaluations, EhealthPolicy.naturalPolicy), "foreman")
-          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbParallelEvaluations} maximum parallel evaluations")
+          val foreman = system.actorOf(Props(classOf[SimpleForeman], coordinator, config.nbParallelEvaluations, EhealthPolicy.naturalPolicy), "foreman")
+          println(s"SimpleForman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbParallelEvaluations} maximum parallel evaluations")
         case Failure(t) =>
           t.printStackTrace()
           system.shutdown

@@ -31,6 +31,7 @@ import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.core.pdp.TimestampGenerator
 import stapl.core.pdp.SimpleTimestampGenerator
 import stapl.distribution.concurrency.LocalConcurrentAttributeCache
+import stapl.distribution.db.LegacyAttributeDatabaseConnection
 
 /**
  * @author ${user.name}
@@ -64,7 +65,7 @@ object App {
     import stapl.examples.policies.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
 
     // set up db    
-    val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+    val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
     db.open
     db.cleanStart
     db.storeAttribute("maarten", subject.get("roles"), List("medical_personnel", "physician")) // FIXME WTF, no idea why "subject.roles" gives the error "errornous or inaccessible type"
@@ -109,7 +110,7 @@ object App {
   def testSingle {
     import stapl.examples.policies.EhealthPolicy.{ subject, action, resource, naturalPolicy => policy }
 
-    val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+    val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
     db.open
 
     val finder = new AttributeFinder

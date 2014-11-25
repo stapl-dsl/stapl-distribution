@@ -19,13 +19,14 @@ import stapl.core.pdp.PDP
 import stapl.core.Result
 import stapl.core.Permit
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
+import stapl.distribution.db.LegacyAttributeDatabaseConnection
 
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request of a Foreman.
  */
 class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache) extends Actor with ActorLogging {
 
-  val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
   db.open
 
   // TODO use attribute cache here if necessary

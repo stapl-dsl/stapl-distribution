@@ -24,6 +24,15 @@ import stapl.core.pdp.PDP
 import scala.util.{ Try, Success, Failure }
 import scala.util.Failure
 import concurrent.ExecutionContext.Implicits.global
+import stapl.distribution.db.AttributeDatabaseConnectionPool
+import stapl.core.Attribute
+import stapl.core.ConcreteValue
+import scala.concurrent.Future
+import scala.concurrent.blocking
+import stapl.core.pdp.RequestCtx
+import stapl.core.pdp.BasicEvaluationCtx
+import stapl.core.pdp.RemoteEvaluator
+import stapl.core.Result
 
 /**
  * Class used for representing the actor on a machine that communicates with
@@ -33,15 +42,15 @@ import concurrent.ExecutionContext.Implicits.global
 class SimpleForeman(coordinator: ActorRef, nbParallelEvaluations: Int, policy: AbstractPolicy) extends Actor with ActorLogging {
 
   /**
-   * Set up the PDP
+   * Set up the PDP to be used for parallel evaluation. All state (the context)
+   * is given with the request itself.
    */
-  val db = new AttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
-  db.open
-  // TODO use attribute cache here if necessary
-  val finder = new AttributeFinder
-  finder += new DatabaseAttributeFinderModule(db)
-  finder += new HardcodedEnvironmentAttributeFinderModule
-  val pdp = new PDP(policy, finder)
+  val pdp = new PDP(policy)
+
+  /**
+   * The pool of database connections.
+   */
+  val pool = new AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root")
 
   /**
    * The queues of work for our Workers: one queue of work received by the
@@ -91,27 +100,38 @@ class SimpleForeman(coordinator: ActorRef, nbParallelEvaluations: Int, policy: A
   }
 
   /**
+   * For communication from the future
+   */
+  case class PolicyEvaluationFinished
+
+  /**
+   * Start a single evaluation.
+   */
+  def startEvaluation(request: PolicyEvaluationRequest) = {
+    // build the whole context here for every evaluation
+    // TODO use attribute cache here if necessary
+    val connection = pool.getConnection
+    val finder = new AttributeFinder
+    finder += new DatabaseAttributeFinderModule(connection)
+    finder += new HardcodedEnvironmentAttributeFinderModule
+    val requestCtx = new RequestCtx(request.subjectId, request.actionId, request.resourceId)
+    val evaluationCtx = new BasicEvaluationCtx(request.id, requestCtx, finder, new RemoteEvaluator)
+    blocking {
+      val result = pdp.evaluate(evaluationCtx)
+      connection.close
+      coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, result)
+      self ! PolicyEvaluationFinished // this should be safe from the future
+    }
+  }
+
+  /**
    * Start new evaluations depending on the size of the work queues
    * and the number of ongoing evaluations.
    */
   def startEvaluations(): Unit = {
     while (thereIsWork() && (nbOngoing < nbParallelEvaluations)) {
-      val request = nextRequest()
       nbOngoing += 1
-      pdp.evaluateAsync(request.subjectId, request.actionId, request.resourceId) onComplete {
-        _ match {
-          case Failure(e) =>
-            nbOngoing -= 1
-            // log the error
-            log.error(s"There was an error in evaluating request ${request.id}", e)
-          case Success(result) =>
-            nbOngoing -= 1
-            // forward the result to the coordinator and start new evaluations
-            // if possible
-            coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, result)
-            startEvaluations()
-        }
-      }
+      startEvaluation(nextRequest())
     }
   }
 
@@ -142,6 +162,21 @@ class SimpleForeman(coordinator: ActorRef, nbParallelEvaluations: Int, policy: A
       log.debug(s"The coordinator sent work: $requests")
       externalWorkQ ++= requests
       startEvaluations()
+
+    /**
+     * From our own future: after a policy evaluation has finished
+     */
+    case PolicyEvaluationFinished =>
+      nbOngoing -= 1
+      startEvaluations()
+      // keep the coordinator up-to-date and ask for more work if needed
+      if(externalWorkQ.isEmpty && internalWorkQ.isEmpty) {
+        log.debug("We're out of work, notify the coordinator of this")
+        coordinator ! CoordinatorForemanProtocol.ForemanIsDoneAndRequestsWork(self, nbParallelEvaluations)
+      } else if (shouldPreventivelyRefill) {
+        log.debug(s"We're not ouf of work yet, but ask for more anyway")
+        coordinator ! CoordinatorForemanProtocol.ForemanRequestsWork(self, nbParallelEvaluations)
+      }
 
     /**
      * To be sure
