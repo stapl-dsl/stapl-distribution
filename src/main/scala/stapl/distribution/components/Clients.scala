@@ -18,7 +18,7 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import util.control.Breaks._
-import stapl.distribution.db.entities.EntityManager
+import stapl.distribution.db.entities.ehealth.EntityManager
 
 class SequentialClient(coordinator: ActorRef) extends Actor with ActorLogging {
 

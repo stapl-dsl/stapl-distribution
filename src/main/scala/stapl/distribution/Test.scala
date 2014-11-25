@@ -8,7 +8,7 @@ import stapl.distribution.util.Timer
 import akka.actor.ActorSystem
 import akka.actor.Props
 import stapl.distribution.db.AttributeDatabaseConnection
-import stapl.distribution.db.entities.EntityManager
+import stapl.distribution.db.entities.ehealth.EntityManager
 import stapl.core.pdp.AttributeFinder
 import stapl.distribution.db.DatabaseAttributeFinderModule
 import stapl.examples.policies.EhealthPolicy

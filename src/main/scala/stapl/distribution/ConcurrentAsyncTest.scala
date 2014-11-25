@@ -5,7 +5,7 @@ import stapl.examples.policies.EhealthPolicy
 import stapl.core.pdp.EvaluationCtx
 import stapl.core.pdp.BasicEvaluationCtx
 import stapl.core.pdp.RequestCtx
-import stapl.distribution.db.entities.EntityManager
+import stapl.distribution.db.entities.ehealth.EntityManager
 import stapl.core.pdp.AttributeFinder
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 import stapl.distribution.db.DatabaseAttributeFinderModule

@@ -10,7 +10,7 @@ import stapl.core.pdp.EvaluationCtx
 import org.joda.time.LocalDateTime
 import stapl.core._
 import stapl.core.Attribute
-import stapl.distribution.db.entities.EntityManager
+import stapl.distribution.db.entities.ehealth.EntityManager
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.core.pdp.AttributeFinder
 import stapl.distribution.db.DatabaseAttributeFinderModule

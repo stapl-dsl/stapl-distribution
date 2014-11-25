@@ -1,4 +1,4 @@
-package stapl.distribution.db.entities
+package stapl.distribution.db.entities.ehealth
 
 import grizzled.slf4j.Logging
 import org.joda.time.LocalDateTime
@@ -9,6 +9,8 @@ import stapl.core.Attribute
 import stapl.core.Permit
 import stapl.core.Deny
 import stapl.core.Decision
+import stapl.distribution.db.entities.DateHelper
+import stapl.distribution.db.entities.Entity
 
 object EntityManager {
   def apply() = new EntityManager()

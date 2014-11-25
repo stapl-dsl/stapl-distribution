@@ -1,12 +1,9 @@
-package stapl.distribution.db.entities
+package stapl.distribution.db.entities.ehealth
 
 import org.joda.time.LocalDateTime
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.examples.policies.EhealthPolicy
-
-abstract class Entity(var id: String) {  
-  def persist(db: AttributeDatabaseConnection) // the id does not have to be stored
-}
+import stapl.distribution.db.entities.Entity
 
 abstract class Person(_id: String,
   var roles: List[String] = List.empty) extends Entity(_id) {
