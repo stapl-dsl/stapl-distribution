@@ -65,7 +65,7 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
       subject.history -> List[String](),
       resource.nbAccesses -> 1)
     assertEquals(Permit, result.decision)
-    assertEquals(List(ConcreteUpdateAttributeObligationAction(resourceOfBank1.id, resource.nbAccesses, 2)), result.obligationActions)
+    assertEquals(List(ConcreteChangeAttributeObligationAction(resourceOfBank1.id, resource.nbAccesses, 2, Update)), result.obligationActions)
   }
 
   @Test def testMaxNbAccesses2 {
@@ -89,7 +89,7 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
   @Test def testMaxNbAccessesWithDb1 {
     val result = maxNbAccessesPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
     assertEquals(Permit, result.decision)
-    assertEquals(List(ConcreteUpdateAttributeObligationAction(resourceOfBank1.id, resource.nbAccesses, 1)), result.obligationActions)
+    assertEquals(List(ConcreteChangeAttributeObligationAction(resourceOfBank1.id, resource.nbAccesses, 1, Update)), result.obligationActions)
   }
 
   @Test def testMaxNbAccessesWithDbAndObligations1 {
@@ -126,7 +126,7 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
       subject.history -> List[String](),
       resource.owner -> bank1)
     assertEquals(Permit, result.decision)
-    assertEquals(List(ConcreteAppendAttributeObligationAction(subject1.id, subject.history, "bank1")), result.obligationActions)
+    assertEquals(List(ConcreteChangeAttributeObligationAction(subject1.id, subject.history, "bank1", Append)), result.obligationActions)
   }
 
   @Test def testChineseWall2 {
@@ -144,7 +144,7 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
       subject.history -> List[String]("bank1"),
       resource.owner -> bank1)
     assertEquals(Permit, result.decision)
-    assertEquals(List(ConcreteAppendAttributeObligationAction(subject1.id, subject.history, "bank1")), result.obligationActions)
+    assertEquals(List(ConcreteChangeAttributeObligationAction(subject1.id, subject.history, "bank1", Append)), result.obligationActions)
   }
 
   @Test def testChineseWall3 {
@@ -168,12 +168,12 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
   @Test def testChineseWall1WithDb {
     val result = chineseWallPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
     assertEquals(Permit, result.decision)
-    assertEquals(List(ConcreteAppendAttributeObligationAction(subject1.id, subject.history, "bank1")), result.obligationActions)
+    assertEquals(List(ConcreteChangeAttributeObligationAction(subject1.id, subject.history, "bank1", Append)), result.obligationActions)
   }
 
   @Test def testChineseWall2WithDb {
     val result = chineseWallPDPWithDb.evaluate(subject1.id, "blabla", resourceOfBank1.id)
     assertEquals(Permit, result.decision)
-    assertEquals(List(ConcreteAppendAttributeObligationAction(subject1.id, subject.history, "bank1")), result.obligationActions)
+    assertEquals(List(ConcreteChangeAttributeObligationAction(subject1.id, subject.history, "bank1", Append)), result.obligationActions)
   }
 }

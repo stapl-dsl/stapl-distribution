@@ -2,21 +2,21 @@ package stapl.distribution.db
 
 import stapl.core.pdp.ObligationServiceModule
 import stapl.core.ConcreteObligationAction
-import stapl.core.ConcreteUpdateAttributeObligationAction
 import stapl.core.String
-import stapl.core.ConcreteAppendAttributeObligationAction
+import stapl.core.ConcreteChangeAttributeObligationAction
+import stapl.core.Update
+import stapl.core.Append
 
 class AttributeUpdatesObligationServiceModule(db: AttributeDatabaseConnection) extends ObligationServiceModule {
   
   override def fulfill(obl: ConcreteObligationAction) = {
     // we only support attribute updates
     obl match {
-      case ConcreteUpdateAttributeObligationAction(entityId, attribute, value) =>
-        db.updateAnyAttribute(entityId, attribute, value.representation)
-        db.commit
-        true
-      case ConcreteAppendAttributeObligationAction(entityId, attribute, value) =>
-        db.storeAnyAttribute(entityId, attribute, value.representation)
+      case ConcreteChangeAttributeObligationAction(entityId, attribute, value, changeType) =>
+        changeType match {
+          case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
+          case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
+        }        
         db.commit
         true
       case _ => false
