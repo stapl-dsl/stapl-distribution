@@ -10,6 +10,18 @@ import akka.actor.Props
 import scala.collection.mutable.{ Map, Queue }
 import stapl.distribution.util.ThroughputStatistics
 import scala.collection.mutable.ListBuffer
+import stapl.distribution.components.CoordinatorForemanProtocol.PolicyEvaluationResult
+import stapl.distribution.db.AttributeDatabaseConnection
+import stapl.distribution.db.AttributeDatabaseConnectionPool
+import stapl.core.ConcreteChangeAttributeObligationAction
+import stapl.core.Attribute
+import stapl.core.ConcreteChangeAttributeObligationAction
+import stapl.core.ConcreteChangeAttributeObligationAction
+import stapl.core.Update
+import stapl.core.Append
+import scala.collection.mutable.Set
+import scala.collection.mutable.MultiMap
+import scala.collection.mutable.HashMap
 
 /**
  * Class used for temporarily storing the clients that sent an
@@ -102,39 +114,247 @@ class ForemanManager {
 }
 
 /**
+ * Class used for concurrency control.
+ *
+ * Strategy: for each ongoing request we maintain the relevant attributes
+ * that have been updated and at commit time, we check whether the evaluation
+ * read an attribute that has been updated by another evaluation while ongoing.
+ * Although it can be that the ongoing evaluation read the new value of the
+ * attribute, we work conservatively for now and fail the commit in case of
+ * *possible* conflict without checking the value of the employed attributes.
+ *
+ * Notice that we only maintain the *relevant* attributes of a policy evaluation.
+ * These are the attributes that have been written by another evaluation while ongoing
+ * and apply to either the subject or the resource of this evaluation.
+ */
+class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]) {
+
+  import scala.collection.mutable.Map
+
+  /**
+   * Maps of id->request and id->updates for efficient search.
+   */
+  private val ongoingEvaluations = Map[Int, PolicyEvaluationRequest]()
+  private val subjectId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
+  private val resourceId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
+  private val updatesWhileEvaluating = Map[Int, ListBuffer[Attribute]]()
+
+  /**
+   * The queues of work of the UpdateWorkers.
+   */
+  private val ongoingUpdates = Map[ActorRef, Queue[ConcreteChangeAttributeObligationAction]]()
+  updateWorkers foreach { ongoingUpdates(_) = Queue() }
+  // we also keep an index of (entityId,attribute) -> actorRef for efficient search
+  // of the correct UpdateWorker to assign an update to
+  private val update2worker = Map[(String, Attribute), ActorRef]()
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * requests is going to start.
+   */
+  def start(requests: List[PolicyEvaluationRequest]): Unit = {
+    requests foreach { start(_) }
+  }
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to start.
+   */
+  def start(request: PolicyEvaluationRequest): Unit = {
+    ongoingEvaluations(request.id) = request
+    subjectId2Evaluation.addBinding(request.subjectId, request)
+    resourceId2Evaluation.addBinding(request.resourceId, request)
+    updatesWhileEvaluating(request.id) = ListBuffer()
+  }
+
+  /**
+   * Tries to commit the evaluation of which the result is given and
+   * returns whether the commit has succeeded or not. This commit will
+   * succeed if there are no conflicting attribute reads and/or writes.
+   * If this method returns true, the attribute updates of the evaluation
+   * are not yet processed but *will* be processed and will be processed
+   * *correctly* so that you can assume that the evaluation is committed.
+   */
+  def commit(result: PolicyEvaluationResult): Boolean = {
+    val id = result.id
+    // 1. check if we *can* commit: check for read-write conflicts
+    val possibleConflicts = updatesWhileEvaluating(id) 
+    result.result.employedAttributes foreach { x =>
+      if (possibleConflicts.contains(x)) {
+        return false
+      }
+    }
+    // 2. we can commit => execute the obligations and update the concurrency
+    //						control administration
+    val request = ongoingEvaluations(id)
+    result.result.obligationActions foreach {
+      _ match {
+        case change: ConcreteChangeAttributeObligationAction =>
+          execute(change)
+          // also store the updates for ongoing evaluations with which
+          // these can conflict. We should only store these for evaluations
+          // that share the entityId
+          subjectId2Evaluation(request.subjectId) foreach { x =>
+            updatesWhileEvaluating(x.id) += change.attribute
+          }
+          resourceId2Evaluation(request.resourceId) foreach { x =>
+            updatesWhileEvaluating(x.id) += change.attribute
+          }
+        case x => throw new IllegalArgumentException(s"For now, we can only process attribute changes. Given ObligationAction: $x")
+      }
+    }
+    // remove the evaluation from the administration
+    subjectId2Evaluation.removeBinding(request.subjectId, request)
+    resourceId2Evaluation.removeBinding(request.resourceId, request)
+    ongoingEvaluations.remove(id)
+    updatesWhileEvaluating.remove(id)
+    // return
+    true
+  }
+
+  /**
+   * Executes a single attribute update by assigning it to the
+   * appropriate UpdateWorker. An update of the same attribute
+   * of the same entity should be handled sequentially, so by the
+   * same UpdateWorker. So: check whether another update for the
+   * given entityId and attribute is currently assigned to a worker
+   * and if so, assign this update to the same worker. If not: assign
+   * the update to the worker with the least work.
+   */
+  private def execute(action: ConcreteChangeAttributeObligationAction): Unit = {
+    val key = (action.entityId, action.attribute)
+    if (update2worker.contains(key)) {
+      update2worker(key) ! action
+    } else {
+      // assign to the UpdateWorker with the least work
+      var min = ongoingUpdates.head._2.size
+      var winner = ongoingUpdates.head._1
+      ongoingUpdates map {
+        case (worker, queue) =>
+          val size = queue.size
+          if (size < min) {
+            min = size
+            winner = worker
+          }
+      }
+      winner ! action
+    }
+  }
+
+  /**
+   * Indicates to the controller that an UpdateWorker has finished.
+   */
+  def updateFinished(updateWorker: ActorRef): Unit = {
+    // remove the head, this is always the update that is finished
+    ongoingUpdates(updateWorker).dequeue
+  }
+}
+
+/**
+ * For disabling concurrency control.
+ */
+class MockConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]) extends ConcurrencyController(null, List()) {
+  
+  updateWorkers foreach { _ ! "terminate" }
+  
+  override def start(request: PolicyEvaluationRequest): Unit = {
+    // do nothing
+  }
+  
+  override def commit(result: PolicyEvaluationResult): Boolean = {
+    // do nothing
+    true
+  }
+  
+  override def updateFinished(updateWorker: ActorRef): Unit = {
+    // do nothing
+  }
+}
+
+/**
+ * Actor used for processing attribute updates asynchronously from the
+ * coordinator. Every message sent to this UpdateWorker is handled sequentially
+ * and blocking, so be sure to assign UpdateWorkers to separate threads.
+ */
+class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
+
+  /**
+   * Note: we use the ObligationActions as messages.
+   */
+  def receive = {
+
+    /**
+     * Update an attribute value.
+     */
+    case update: ConcreteChangeAttributeObligationAction =>
+      val ConcreteChangeAttributeObligationAction(entityId, attribute, value, changeType) = update
+      changeType match {
+        case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
+        case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
+      }
+      db.commit
+      coordinator ! UpdateFinished(self)
+      
+    case "terminate" => context.stop(self)
+  }
+
+}
+
+/**
+ * For communication between the UpdateWorkers and the Coordinator.
+ */
+case class UpdateFinished(updateWorker: ActorRef)
+
+/**
  * Class used for representing the Coordinator that manages all foremen
  * and ensures correct concurrency.
- * 
- * TODO: the work mgmt is not correct yet: the list of requests assigned 
+ *
+ * TODO: the work mgmt is not correct yet: the list of requests assigned
  * to a foremen is not extended with newly assigned work and is also not cleared
  * if the foreman has finished certain jobs except if he sends a "Finished" message
- * (so not in the "give me more" message") 
+ * (so not in the "give me more" message)
  */
-class Coordinator extends Actor with ActorLogging {
+class Coordinator(nbUpdateWorkers: Int) extends Actor with ActorLogging {
   import ClientCoordinatorProtocol._
   import CoordinatorForemanProtocol._
 
   /**
    *  Holds known workers and what they may be working on
    */
-  val foremen = new ForemanManager
+  private val foremen = new ForemanManager
 
   /**
    * Holds the incoming list of work to be done as well
    * as the memory of who asked for it
    */
-  val workQ = Queue.empty[PolicyEvaluationRequest]
+  private val workQ = Queue.empty[PolicyEvaluationRequest]
 
   /**
    * Holds the mapping between the clients and the authorization requests
    * they sent.
    */
-  val clients = new ClientAuthorizationRequestManager
+  private val clients = new ClientAuthorizationRequestManager
 
   /**
    * Some statistics of the throughput
    */
-  val stats = new ThroughputStatistics
+  private val stats = new ThroughputStatistics
+
+  /**
+   * Construct our UpdateWorkers for the ConcurrencyController.
+   */
+  private val updateWorkers = scala.collection.mutable.ListBuffer[ActorRef]()
+  private val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root")
+  1 to nbUpdateWorkers foreach { _ =>
+    updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, db.getConnection))
+  }
+  private val concurrencyController = new ConcurrencyController(self, updateWorkers.toList)
+//  private val concurrencyController = new MockConcurrencyController(self, updateWorkers.toList)
+
+  /**
+   * A mapping of id->request for restarting requests efficiently.
+   */
+  private val id2request = scala.collection.mutable.Map[Int, PolicyEvaluationRequest]()
 
   /**
    * Notifies foremen that there's work available, provided they're
@@ -221,23 +441,38 @@ class Coordinator extends Actor with ActorLogging {
     case AuthorizationRequest(subjectId, actionId, resourceId) =>
       log.debug(s"Queueing ($subjectId, $actionId, $resourceId) from $sender")
       val id = clients.store(sender)
-      workQ.enqueue(new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId))
+      val request = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId)
+      id2request(id) = request
+      concurrencyController.start(request)
+      workQ.enqueue(request)
       notifyForemen
 
     /**
      *
      */
-    case PolicyEvaluationResult(id, result) =>
+    case result: PolicyEvaluationResult =>
+      val id = result.id
       log.debug(s"Received authorization decision: ($id, $result)")
-      val client = clients.get(id)
-      // TODO: fulfill obligations here
-      client ! AuthorizationDecision(result.decision)
-      stats.tick
+      if (concurrencyController.commit(result)) {
+        // the commit succeeded => remove the request from our administration and 
+        // return the result to the client
+        id2request.remove(id)
+        val client = clients.get(id)
+        client ! AuthorizationDecision(result.result.decision)
+        stats.tick
+      } else {
+        // the commit failed => restart the evaluation
+        log.warning(s"Conflicting evaluation found, restarting $id")
+        workQ.enqueue(id2request(id))
+      }
 
     /**
-     * Unknown messages
+     *
      */
-    case x => log.error(s"Unknown message received: $x")
+    case UpdateFinished(updateWorker) =>
+      // just forward this message to the concurrency controller (which is 
+      // not an actor...)
+      concurrencyController.updateFinished(updateWorker)
 
   }
 }

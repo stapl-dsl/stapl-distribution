@@ -10,20 +10,26 @@ import akka.actor.Props
 import scala.collection.mutable.{ Map, Queue }
 import stapl.distribution.components.Coordinator
 
-case class CoordinatorConfig(hostname: String = "not-provided", port: Int = -1)
+case class CoordinatorConfig(hostname: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5)
 
 object CoordinatorApp {
 
   def main(args: Array[String]) {
     val parser = new scopt.OptionParser[CoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
-      opt[String]('h', "hostname") required() action { (x, c) =>
+      opt[String]('h', "hostname") required () action { (x, c) =>
         c.copy(hostname = x)
       } text ("The hostname of the machine on which this coordinator is run. This hostname will be used by other actors in their callbacks, so it should be externally accessible if you deploy the components on different machines.")
 
-      opt[Int]('p', "port") required() action { (x, c) =>
+      opt[Int]('p', "port") required () action { (x, c) =>
         c.copy(port = x)
       } text ("The port on which this coordinator will be listening.")
+      help("help") text ("prints this usage text")
+
+      opt[Int]("nbWorkers") required () action { (x, c) =>
+        c.copy(nbUpdateWorkers = x)
+      } text ("The number of update workers to spawn to process attribute updates asynchronously.")
+      
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -35,9 +41,9 @@ object CoordinatorApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-coordinator", customConf)
 
-      val coordinator = system.actorOf(Props[Coordinator], "coordinator")
+      val coordinator = system.actorOf(Props(classOf[Coordinator], config.nbUpdateWorkers), "coordinator")
 
-      println(s"Coordinator up and running at ${config.hostname}:${config.port}")
+      println(s"Coordinator up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }
