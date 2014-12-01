@@ -135,8 +135,17 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
    * Maps of id->request and id->updates for efficient search.
    */
   private val ongoingEvaluations = Map[Int, PolicyEvaluationRequest]()
+  
+  /**
+   * Efficient mapping of subjectId and resourceId to all ongoing 
+   * policy evaluations for these ids.
+   */
   private val subjectId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
   private val resourceId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
+  
+  /**
+   * The lists of attributes that have been updated during a certain policy evaluation.
+   */
   private val updatesWhileEvaluating = Map[Int, ListBuffer[Attribute]]()
 
   /**
