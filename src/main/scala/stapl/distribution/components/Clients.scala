@@ -19,11 +19,11 @@ import stapl.distribution.util.Timer
 import akka.pattern.ask
 import util.control.Breaks._
 import stapl.distribution.db.entities.ehealth.EntityManager
+import stapl.distribution.components.ClientCoordinatorProtocol._
 
-class SequentialClient(coordinator: ActorRef) extends Actor with ActorLogging {
+class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
   import ClientProtocol._
-  import ClientCoordinatorProtocol._
 
   implicit val timeout = Timeout(2.second)
   implicit val ec = context.dispatcher
@@ -35,7 +35,7 @@ class SequentialClient(coordinator: ActorRef) extends Actor with ActorLogging {
 
   def sendRequest = {
     timer.time {
-      val f = coordinator ? AuthorizationRequest(em.maarten.id, "view", em.maartenStatus.id)
+      val f = coordinator ? request
       val decision: Decision = Await.ready(f, 3 seconds).value match {
         case None =>
           // should never happen, but just in case...
@@ -76,7 +76,7 @@ class SequentialClient(coordinator: ActorRef) extends Actor with ActorLogging {
             sendRequest
           }
         } else {
-          for (i <- 0 to nb) {
+          for (i <- 1 to nb) {
             sendRequest
           }
         }

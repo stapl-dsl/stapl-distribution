@@ -20,7 +20,7 @@ import stapl.core.Bool
 class SimpleAttributeDatabaseConnection(initialConnection: Connection) extends AttributeDatabaseConnection with Logging {
 
   initialConnection.setReadOnly(false)
-  initialConnection.setAutoCommit(false)
+  initialConnection.setAutoCommit(true)
 
   private var conn: Connection = initialConnection
   private var getStringAttributeStmt: PreparedStatement = initialConnection.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
@@ -31,11 +31,7 @@ class SimpleAttributeDatabaseConnection(initialConnection: Connection) extends A
    * Commits all operations.
    */
   def commit(): Unit = {
-    try {
-      conn.commit()
-    } catch {
-      case e: SQLException => error("Cannot commit.", e)
-    }
+    // don't do anything because a SimpleAttributeDatabaseConnection is always in autocommit.
   }
 
   /**

@@ -12,14 +12,22 @@ import scala.math.BigInt.int2bigInt
 import stapl.distribution.components.Foreman
 import com.typesafe.config.ConfigFactory
 import stapl.examples.policies.EhealthPolicy
+import stapl.core.AbstractPolicy
+import stapl.distribution.policies.ConcurrencyPolicies
+import stapl.distribution.components.ClientCoordinatorProtocol
 
 case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorHostname: String = "not-provided", coordinatorPort: Int = -1,
-  nbWorkers: Int = -1)
+  nbWorkers: Int = -1, policy: String = "not-provided")
 
 object ForemanApp {
   def main(args: Array[String]) {
+    
+    val policies = Map(
+        "ehealth" -> EhealthPolicy.naturalPolicy, 
+        "chinese-wall" -> ConcurrencyPolicies.chineseWall,
+        "count" -> ConcurrencyPolicies.maxNbAccess)
 
     val parser = new scopt.OptionParser[ForemanConfig]("scopt") {
       head("STAPL - coordinator")
@@ -41,6 +49,11 @@ object ForemanApp {
       opt[Int]("nb-workers") required () action { (x, c) =>
         c.copy(nbWorkers = x)
       } text ("The number of workers to spawn for this foreman.")
+      opt[String]("policy") required () action { (x, c) =>
+        c.copy(policy = x)
+      } validate { x =>
+        if(policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
+      } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -57,7 +70,7 @@ object ForemanApp {
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, EhealthPolicy.naturalPolicy), "foreman")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy)), "foreman")
           println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers")
         case Failure(t) =>
           t.printStackTrace()

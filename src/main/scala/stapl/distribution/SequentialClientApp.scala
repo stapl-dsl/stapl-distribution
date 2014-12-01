@@ -18,14 +18,23 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.SequentialClient
+import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
 
 case class SequentialClientConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorHostname: String = "not-provided", coordinatorPort: Int = -1,
-  nbThreads: Int = -1, nbRequests: Int = -1)
+  nbThreads: Int = -1, nbRequests: Int = -1, policy: String = "not-provided")
 
 object SequentialClientApp {
   def main(args: Array[String]) {
+    
+    
+    val ehealthEM = stapl.distribution.db.entities.ehealth.EntityManager()
+    val concEM = stapl.distribution.db.entities.concurrency.EntityManager()
+    val policies = Map(
+        "ehealth" -> AuthorizationRequest(ehealthEM.maarten.id, "view", ehealthEM.maartenStatus.id), 
+        "count" -> AuthorizationRequest(concEM.subject1.id, "blabla", concEM.resourceOfBank1.id))
+    
     val parser = new scopt.OptionParser[SequentialClientConfig]("scopt") {
       head("STAPL - coordinator")
       opt[String]("name") required () action { (x, c) =>
@@ -49,6 +58,11 @@ object SequentialClientApp {
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
       } text ("The number of sequential requests that each client should send. 0 for infinite.")
+      opt[String]("policy") required () action { (x, c) =>
+        c.copy(policy = x)
+      } validate { x =>
+        if(policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
+      } text (s"The policy for which to send requests. Valid values: ${policies.keys}")
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -66,7 +80,7 @@ object SequentialClientApp {
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
           import components.ClientProtocol._
-          val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClient], coordinator)), "clients")
+          val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClient], coordinator, policies(config.policy))), "clients")
           clients ! Go(config.nbRequests)
           println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests at ${config.hostname}:${config.port}")
         case Failure(t) =>

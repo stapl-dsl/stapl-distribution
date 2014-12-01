@@ -13,7 +13,7 @@ import stapl.core.String
 import stapl.core.Number
 import stapl.core.Bool
 
-class LegacyAttributeDatabaseConnection(host: String, port: Int, database: String, username: String, password: String)
+class LegacyAttributeDatabaseConnection(host: String, port: Int, database: String, username: String, password: String, autocommit: Boolean = true)
   extends AttributeDatabaseConnection with Logging {
 
   private val dataSource = new ComboPooledDataSource
@@ -26,7 +26,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
 
   private var conn: Option[Connection] = None
   private var getStringAttributeStmt: Option[PreparedStatement] = None; // TODO better way for this? Option is overkill...
-//  private var getSupportedXACMLAttributeIdsStmt: Option[PreparedStatement] = None;
+  //  private var getSupportedXACMLAttributeIdsStmt: Option[PreparedStatement] = None;
   private var storeAttributeStmt: Option[PreparedStatement] = None;
 
   /**
@@ -45,9 +45,9 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
     try {
       val newconn = dataSource.getConnection()
       newconn.setReadOnly(readOnly)
-      newconn.setAutoCommit(false)
+      newconn.setAutoCommit(autocommit)
       getStringAttributeStmt = Some(newconn.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;"))
-//      getSupportedXACMLAttributeIdsStmt = Some(newconn.prepareStatement("SELECT xacmlIdentifier FROM SP_ATTRTYPE"))
+      //      getSupportedXACMLAttributeIdsStmt = Some(newconn.prepareStatement("SELECT xacmlIdentifier FROM SP_ATTRTYPE"))
       storeAttributeStmt = Some(newconn.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);"))
       conn = Some(newconn)
     } catch {
@@ -59,13 +59,15 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
    * Commits all operations.
    */
   override def commit(): Unit = {
-    try {
-      conn match {
-        case Some(conn) => conn.commit()
-        case None => throw new RuntimeException("The connection was not open, cannot commit.")
+    if (!autocommit) {
+      try {
+        conn match {
+          case Some(conn) => conn.commit()
+          case None => throw new RuntimeException("The connection was not open, cannot commit.")
+        }
+      } catch {
+        case e: SQLException => error("Cannot commit.", e)
       }
-    } catch {
-      case e: SQLException => error("Cannot commit.", e)
     }
   }
 
@@ -81,13 +83,13 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
         }
         case None =>
       }
-//      getSupportedXACMLAttributeIdsStmt match {
-//        case Some(stmt) => {
-//          stmt.close()
-//          this.getSupportedXACMLAttributeIdsStmt = None
-//        }
-//        case None =>
-//      }
+      //      getSupportedXACMLAttributeIdsStmt match {
+      //        case Some(stmt) => {
+      //          stmt.close()
+      //          this.getSupportedXACMLAttributeIdsStmt = None
+      //        }
+      //        case None =>
+      //      }
       storeAttributeStmt match {
         case Some(stmt) => {
           stmt.close()
@@ -164,12 +166,12 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
    * Fetches a string attribute from the database using the connection of this database.
    * Does NOT commit or close.
    */
-  override def getStringAttribute(entityId: String, cType: AttributeContainerType, name: String): List[String] = {    
+  override def getStringAttribute(entityId: String, cType: AttributeContainerType, name: String): List[String] = {
     getStringAttributeStmt match {
       case None => throw new RuntimeException("The connection was not open, cannot fetch attribute.")
       case Some(stmt) => {
         var queryResult: ResultSet = null
-        try {          
+        try {
           stmt.setString(1, entityId)
           stmt.setString(2, cType.toString())
           stmt.setString(3, name)
