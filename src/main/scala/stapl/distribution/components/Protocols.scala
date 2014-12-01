@@ -17,7 +17,7 @@ object ClientProtocol {
  * For communication between clients and the coordinator.
  */
 object ClientCoordinatorProtocol {
-  case class AuthorizationRequest(subjectId: String, actionId: String, resourceId: String, extraAttributes: (Attribute, ConcreteValue)*)
+  case class AuthorizationRequest(subjectId: String, actionId: String, resourceId: String, extraAttributes: List[(Attribute, ConcreteValue)] = List())
   case class AuthorizationDecision(decision: Decision)
 }
 
@@ -29,7 +29,7 @@ case object Top extends PolicyToBeEvaluated
 case class ById(id: String) extends PolicyToBeEvaluated
 
 case class PolicyEvaluationRequest(id: Int, policy: PolicyToBeEvaluated, subjectId: String, 
-    actionId: String, resourceId: String, extraAttributes: (Attribute, ConcreteValue)*)
+    actionId: String, resourceId: String, extraAttributes: List[(Attribute, ConcreteValue)])
 
 object CoordinatorForemanProtocol {  
   // Messages from Foremen

@@ -22,6 +22,10 @@ import stapl.core.Append
 import scala.collection.mutable.Set
 import scala.collection.mutable.MultiMap
 import scala.collection.mutable.HashMap
+import stapl.core.ConcreteChangeAttributeObligationAction
+import stapl.core.ConcreteValue
+import stapl.core.SUBJECT
+import stapl.core.RESOURCE
 
 /**
  * Class used for temporarily storing the clients that sent an
@@ -156,6 +160,12 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
   // we also keep an index of (entityId,attribute) -> actorRef for efficient search
   // of the correct UpdateWorker to assign an update to
   private val update2worker = Map[(String, Attribute), ActorRef]()
+  
+  /**
+   * The ongoing updates per entityId.
+   */
+  private val subjectId2OngoingUpdates = new HashMap[String, Map[Attribute,ConcreteValue]]
+  private val resourceId2OngoingUpdates = new HashMap[String, Map[Attribute,ConcreteValue]]
 
   /**
    * Indicates to the controller that the evaluation of the given
@@ -168,12 +178,27 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
   /**
    * Indicates to the controller that the evaluation of the given
    * request is going to start.
+   * 
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to bhe committed in the database yet. 
    */
-  def start(request: PolicyEvaluationRequest): Unit = {
+  def start(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     ongoingEvaluations(request.id) = request
     subjectId2Evaluation.addBinding(request.subjectId, request)
     resourceId2Evaluation.addBinding(request.resourceId, request)
     updatesWhileEvaluating(request.id) = ListBuffer()
+    
+    // add suitable attributes of ongoing attribute updates
+    var attributes = request.extraAttributes
+    if(subjectId2OngoingUpdates.contains(request.subjectId)) {
+      attributes ++= subjectId2OngoingUpdates(request.subjectId).asParSeq
+    }
+    if(resourceId2OngoingUpdates.contains(request.resourceId)) {
+      attributes ++= resourceId2OngoingUpdates(request.resourceId).asParSeq
+    }
+    PolicyEvaluationRequest(request.id, request.policy, request.subjectId, request.actionId, request.resourceId, attributes)
   }
 
   /**
@@ -230,10 +255,24 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
    * and if so, assign this update to the same worker. If not: assign
    * the update to the worker with the least work.
    */
-  private def execute(action: ConcreteChangeAttributeObligationAction): Unit = {
-    val key = (action.entityId, action.attribute)
+  private def execute(update: ConcreteChangeAttributeObligationAction): Unit = {
+    // store that the update is going on
+    // Note: this can replace a previous ongoing update, but the fact
+    // that the new update is assigned to the same update worker as
+    // the previous update guarantees serial execution and that the second
+    // update will be the final one
+    val target = update.attribute.cType match {
+      case SUBJECT => subjectId2OngoingUpdates
+      case RESOURCE => resourceId2OngoingUpdates
+      case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given attribute: $x")
+    } 
+    if(target.contains(update.entityId)) {
+      target(update.entityId)(update.attribute) = update.value
+    }
+    // send the update to a worker
+    val key = (update.entityId, update.attribute)
     if (update2worker.contains(key)) {
-      update2worker(key) ! action
+      update2worker(key) ! update
     } else {
       // assign to the UpdateWorker with the least work
       var min = ongoingUpdates.head._2.size
@@ -246,7 +285,7 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
             winner = worker
           }
       }
-      winner ! action
+      winner ! update
     }
   }
 
@@ -255,7 +294,21 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
    */
   def updateFinished(updateWorker: ActorRef): Unit = {
     // remove the head, this is always the update that is finished
-    ongoingUpdates(updateWorker).dequeue
+    val finishedUpdate = ongoingUpdates(updateWorker).dequeue
+    // also remove the ongoing update from the list of ongoing updates
+    // per attribute IF this has not been overwritten in the meanwhile
+    val target = finishedUpdate.attribute.cType match {
+      case SUBJECT => subjectId2OngoingUpdates
+      case RESOURCE => resourceId2OngoingUpdates
+      // no need to check the other cases, this has been checked when adding
+      // to ongoingUpdates
+    }
+    if(target.contains(finishedUpdate.entityId)) {
+      val values = target(finishedUpdate.entityId)
+      if(values.contains(finishedUpdate.attribute) && values(finishedUpdate.attribute) == finishedUpdate.value) {
+        values.remove(finishedUpdate.attribute)
+      }
+    }
   }
 }
 
@@ -266,8 +319,9 @@ class MockConcurrencyController(coordinator: ActorRef, updateWorkers: List[Actor
   
   updateWorkers foreach { _ ! "terminate" }
   
-  override def start(request: PolicyEvaluationRequest): Unit = {
+  override def start(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // do nothing
+    request
   }
   
   override def commit(result: PolicyEvaluationResult): Boolean = {
@@ -447,12 +501,11 @@ class Coordinator(nbUpdateWorkers: Int) extends Actor with ActorLogging {
     /**
      *
      */
-    case AuthorizationRequest(subjectId, actionId, resourceId) =>
+    case AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) =>
       log.debug(s"Queueing ($subjectId, $actionId, $resourceId) from $sender")
       val id = clients.store(sender)
-      val request = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId)
+      val request = concurrencyController.start(new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes))
       id2request(id) = request
-      concurrencyController.start(request)
       workQ.enqueue(request)
       notifyForemen
 
@@ -482,6 +535,12 @@ class Coordinator(nbUpdateWorkers: Int) extends Actor with ActorLogging {
       // just forward this message to the concurrency controller (which is 
       // not an actor...)
       concurrencyController.updateFinished(updateWorker)
+      
+    /**
+     * Just to be sure
+     */
+    case x =>
+      log.warning(s"Unknown message received: $x")
 
   }
 }
