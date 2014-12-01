@@ -3,6 +3,8 @@ package stapl.distribution.components
 import akka.actor.ActorRef
 import stapl.core.Decision
 import stapl.core.Result
+import stapl.core.Attribute
+import stapl.core.ConcreteValue
 
 /**
  * For communicating with clients (mainly for testing purposes) 
@@ -15,7 +17,7 @@ object ClientProtocol {
  * For communication between clients and the coordinator.
  */
 object ClientCoordinatorProtocol {
-  case class AuthorizationRequest(subjectId: String, actionId: String, resourceId: String)
+  case class AuthorizationRequest(subjectId: String, actionId: String, resourceId: String, extraAttributes: (Attribute, ConcreteValue)*)
   case class AuthorizationDecision(decision: Decision)
 }
 
@@ -26,7 +28,8 @@ sealed abstract class PolicyToBeEvaluated
 case object Top extends PolicyToBeEvaluated
 case class ById(id: String) extends PolicyToBeEvaluated
 
-case class PolicyEvaluationRequest(id: Int, policy: PolicyToBeEvaluated, subjectId: String, actionId: String, resourceId: String)
+case class PolicyEvaluationRequest(id: Int, policy: PolicyToBeEvaluated, subjectId: String, 
+    actionId: String, resourceId: String, extraAttributes: (Attribute, ConcreteValue)*)
 
 object CoordinatorForemanProtocol {  
   // Messages from Foremen

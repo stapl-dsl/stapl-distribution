@@ -75,8 +75,7 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
    */
   private def processRequest(request: PolicyEvaluationRequest): Unit = {
     // TODO implement evaluating the policy asked for by the request
-    // TODO implement extra attributes
-    val result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId)
+    val result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
     // pass the decision directly to the coordinator...
     coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, result)
     // ... and request new work from the foreman...
