@@ -27,7 +27,7 @@ import akka.pattern.ask
 import akka.util.Timeout
 import stapl.core.Decision
 import grizzled.slf4j.Logging
-import scala.actors.AskTimeoutException
+import akka.pattern.AskTimeoutException
 
 object Test extends App with Logging {
 

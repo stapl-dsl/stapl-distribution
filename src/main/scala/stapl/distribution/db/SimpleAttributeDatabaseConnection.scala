@@ -17,9 +17,9 @@ import stapl.core.Bool
  *
  * Constructor: sets up an open writable AttributeDatabaseConnection.
  */
-class SimpleAttributeDatabaseConnection(initialConnection: Connection) extends AttributeDatabaseConnection with Logging {
+class SimpleAttributeDatabaseConnection(initialConnection: Connection, readonly: Boolean = true) extends AttributeDatabaseConnection with Logging {
 
-  initialConnection.setReadOnly(false)
+  initialConnection.setReadOnly(readonly)
   initialConnection.setAutoCommit(true)
 
   private var conn: Connection = initialConnection

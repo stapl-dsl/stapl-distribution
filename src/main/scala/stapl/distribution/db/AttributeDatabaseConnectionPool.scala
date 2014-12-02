@@ -13,7 +13,8 @@ import stapl.core.String
 import stapl.core.Number
 import stapl.core.Bool
 
-class AttributeDatabaseConnectionPool(host: String, port: Int, database: String, username: String, password: String)
+class AttributeDatabaseConnectionPool(host: String, port: Int, database: String, username: String, password: String, 
+    readonly: Boolean = false)
   extends Logging {
 
   private val dataSource = new ComboPooledDataSource
@@ -24,10 +25,10 @@ class AttributeDatabaseConnectionPool(host: String, port: Int, database: String,
   dataSource.setPassword(password);
   dataSource.setJdbcUrl(s"jdbc:mysql://$host:$port/$database");
   
-  def getConnection() = new SimpleAttributeDatabaseConnection(dataSource.getConnection())
+  def getConnection() = new SimpleAttributeDatabaseConnection(dataSource.getConnection(), readonly)
 
 }
 object AttributeDatabaseConnectionPool {
-  def apply(host: String, port: Int, database: String, username: String, password: String) =
-    new AttributeDatabaseConnectionPool(host: String, port: Int, database: String, username: String, password: String)
+  def apply(host: String, port: Int, database: String, username: String, password: String, readonly: Boolean = false) =
+    new AttributeDatabaseConnectionPool(host: String, port: Int, database: String, username: String, password: String, readonly)
 }

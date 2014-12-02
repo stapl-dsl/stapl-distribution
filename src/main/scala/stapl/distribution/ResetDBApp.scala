@@ -6,7 +6,7 @@ import stapl.distribution.db.LegacyAttributeDatabaseConnection
 
 object ResetDBApp extends App with Logging {
   
-  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root")
+  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root", false /* not autocommit */)
   db.open
   info("Resetting databases")
   db.cleanStart

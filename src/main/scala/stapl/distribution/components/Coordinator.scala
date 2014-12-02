@@ -435,7 +435,7 @@ class Coordinator(nbUpdateWorkers: Int) extends Actor with ActorLogging {
    * Construct our UpdateWorkers for the ConcurrencyController.
    */
   private val updateWorkers = scala.collection.mutable.ListBuffer[ActorRef]()
-  private val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root")
+  private val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", false /* we want to write => NOT readonly */)
   1 to nbUpdateWorkers foreach { _ =>
     updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, db.getConnection))
   }

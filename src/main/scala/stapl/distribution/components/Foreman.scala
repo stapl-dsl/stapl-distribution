@@ -16,6 +16,7 @@ import akka.actor.Actor
 import scala.collection.mutable.Queue
 import scala.collection.mutable.Set
 import stapl.core.AbstractPolicy
+import stapl.distribution.db.AttributeDatabaseConnectionPool
 
 /**
  * Class used for managing workers.
@@ -76,6 +77,11 @@ class WorkerManager {
  * amongst multiple policy evaluator actors on its machine.
  */
 class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy) extends Actor with ActorLogging {
+  
+  /**
+   * The database connections for the workers
+   */
+  val pool = new AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", true /* readonly */)
 
   /**
    * The queues of work for our Workers: one queue of work received by the
@@ -119,7 +125,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy) ext
   override def preStart() = {
     // create our workers
     1 to nbWorkers foreach { _ =>
-      workers += context.actorOf(Props(classOf[Worker], coordinator, self, policy, null)) // TODO pass policy and attribute cache
+      workers += context.actorOf(Props(classOf[Worker], coordinator, self, policy, null, pool.getConnection)) // TODO pass policy and attribute cache
     }
     // notify the coordinator
     coordinator ! CoordinatorForemanProtocol.ForemanCreated(self)
