@@ -15,6 +15,14 @@ import stapl.examples.policies.EhealthPolicy
 import stapl.core.AbstractPolicy
 import stapl.distribution.policies.ConcurrencyPolicies
 import stapl.distribution.components.ClientCoordinatorProtocol
+import com.hazelcast.config.Config
+import stapl.distribution.db.AttributeMapStore
+import com.hazelcast.core.Hazelcast
+import com.hazelcast.core.IMap
+import stapl.core.AttributeContainerType
+import stapl.distribution.db.HazelcastAttributeDatabaseConnection
+import com.hazelcast.config.MapConfig
+import com.hazelcast.config.MapStoreConfig
 
 case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
@@ -23,11 +31,11 @@ case class ForemanConfig(name: String = "not-provided",
 
 object ForemanApp {
   def main(args: Array[String]) {
-    
+
     val policies = Map(
-        "ehealth" -> EhealthPolicy.naturalPolicy, 
-        "chinese-wall" -> ConcurrencyPolicies.chineseWall,
-        "count" -> ConcurrencyPolicies.maxNbAccess)
+      "ehealth" -> EhealthPolicy.naturalPolicy,
+      "chinese-wall" -> ConcurrencyPolicies.chineseWall,
+      "count" -> ConcurrencyPolicies.maxNbAccess)
 
     val parser = new scopt.OptionParser[ForemanConfig]("scopt") {
       head("STAPL - coordinator")
@@ -52,7 +60,7 @@ object ForemanApp {
       opt[String]("policy") required () action { (x, c) =>
         c.copy(policy = x)
       } validate { x =>
-        if(policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
+        if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
       } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
       help("help") text ("prints this usage text")
     }
@@ -65,12 +73,21 @@ object ForemanApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("Foreman", customConf)
 
+      // set up hazelcast db connection
+      val MAP_NAME = "stapl-attributes"
+      val cfg = new Config();
+      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false);
+      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true);
+      cfg.getNetworkConfig().getJoin().getTcpIpConfig().addMember("127.0.0.1");
+      val hazelcast = Hazelcast.newHazelcastInstance(cfg);
+
       val selection =
         system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorHostname}:${config.coordinatorPort}/user/coordinator")
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy)), "foreman")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), 
+              new HazelcastAttributeDatabaseConnection(hazelcast.getMap(MAP_NAME))), "foreman")
           println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers")
         case Failure(t) =>
           t.printStackTrace()

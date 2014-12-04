@@ -58,7 +58,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
   /**
    * Commits all operations.
    */
-  override def commit(): Unit = {
+  def commit(): Unit = {
     if (!autocommit) {
       try {
         conn match {
@@ -74,7 +74,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
   /**
    * Closes the connection to the database.
    */
-  override def close(): Unit = {
+  def close(): Unit = {
     try {
       getStringAttributeStmt match {
         case Some(stmt) => {
@@ -109,7 +109,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
     }
   }
 
-  override def cleanStart(): Unit = {
+  def cleanStart(): Unit = {
     dropData()
     createTables()
   }
@@ -117,7 +117,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
   /**
    * Opens a connection, creates the tables, commits and closes the connection.
    */
-  override def createTables(): Unit = {
+  def createTables(): Unit = {
     try {
       conn match {
         case Some(conn) => {
@@ -147,7 +147,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
   /**
    * Opens a connection, drops the data, commits and closes the connection.
    */
-  override def dropData(): Unit = {
+  def dropData(): Unit = {
     try {
       conn match {
         case Some(conn) => {

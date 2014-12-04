@@ -17,7 +17,6 @@ class AttributeUpdatesObligationServiceModule(db: AttributeDatabaseConnection) e
           case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
           case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
         }        
-        db.commit
         true
       case _ => false
     }

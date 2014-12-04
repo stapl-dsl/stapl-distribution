@@ -20,28 +20,6 @@ import stapl.core.Bool
 abstract class AttributeDatabaseConnection extends Logging {
 
   /**
-   * Commits all operations.
-   */
-  def commit(): Unit
-
-  /**
-   * Closes the connection to the database.
-   */
-  def close(): Unit
-
-  def cleanStart(): Unit
-
-  /**
-   * Opens a connection, creates the tables, commits and closes the connection.
-   */
-  def createTables(): Unit
-
-  /**
-   * Opens a connection, drops the data, commits and closes the connection.
-   */
-  def dropData(): Unit
-
-  /**
    * Fetches a string attribute from the database using the connection of this database.
    * Does NOT commit or close.
    */
