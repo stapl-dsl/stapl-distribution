@@ -21,7 +21,8 @@ import java.util.HashMap
 /**
  *
  */
-class AttributeMapStore(host: String, port: Int, database: String, username: String, password: String) extends MapStore[(String, AttributeContainerType, String), List[String]] with Logging {
+class AttributeMapStore(host: String, port: Int, database: String, username: String, password: String) 
+	extends MapStore[(String, AttributeContainerType, String), List[String]] with Logging {
 
   private val dataSource = new ComboPooledDataSource
   dataSource.setMaxPoolSize(30); // no maximum
@@ -35,11 +36,12 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
 
   private var getStringAttributeStmt: PreparedStatement = conn.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
   private var storeAttributeStmt: PreparedStatement = conn.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);")
-  private var removeAttributeStmt: PreparedStatement = conn.prepareStatement("DELETE FROM attributes WHERE attribute_value=? WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
+  private var removeAttributeStmt: PreparedStatement = conn.prepareStatement("DELETE FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
 
   import scala.collection.JavaConversions._
 
   def load(key: (String, AttributeContainerType, String)): List[String] = {
+    debug(s"Loading values for $key")
     val (entityId, cType, name) = key
     var queryResult: ResultSet = null
     try {
@@ -52,6 +54,7 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
       while (queryResult.next()) {
         r ::= queryResult.getString("attribute_value")
       }
+      debug(s"Values found for $key: $r")
       r
     } catch {
       case e: SQLException => {
@@ -152,7 +155,7 @@ class HazelcastAttributeDatabaseConnection(hazelcast: IMap[(String, AttributeCon
    * Opens a connection, drops the data, commits and closes the connection.
    */
   def dropData(): Unit = {
-    hazelcast.destroy
+    hazelcast.destroy // TODO is this the correct method to call here?
   }
 
   /**
@@ -160,6 +163,7 @@ class HazelcastAttributeDatabaseConnection(hazelcast: IMap[(String, AttributeCon
    */
   def getStringAttribute(entityId: String, cType: AttributeContainerType, name: String): List[String] = {
     val key = (entityId, cType, name)
+    debug(s"Fetching attribute values of $key from hazelcast")
     hazelcast.get(key)
   }
 

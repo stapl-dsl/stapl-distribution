@@ -37,6 +37,7 @@ import stapl.core.AttributeContainerType
 import stapl.distribution.db.HazelcastAttributeDatabaseConnection
 import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
+import com.hazelcast.core.HazelcastInstance
 
 /**
  * Class used for temporarily storing the clients that sent an
@@ -413,7 +414,14 @@ case class UpdateFinished(updateWorker: ActorRef)
  * if the foreman has finished certain jobs except if he sends a "Finished" message
  * (so not in the "give me more" message)
  */
-class Coordinator(nbUpdateWorkers: Int) extends Actor with ActorLogging {
+object Coordinator {  
+  /**
+   * The name of the Hazelcast map. 
+   */
+  val MAP_NAME = "stapl-attributes"
+}
+class Coordinator(hazelcast: HazelcastInstance, nbUpdateWorkers: Int) extends Actor with ActorLogging {
+  
   import ClientCoordinatorProtocol._
   import CoordinatorForemanProtocol._
 
@@ -440,28 +448,12 @@ class Coordinator(nbUpdateWorkers: Int) extends Actor with ActorLogging {
   private val stats = new ThroughputStatistics
 
   /**
-   * Set up the Hazelcast IMap for the attributes
-   */
-  val MAP_NAME = "stapl-attributes"
-  val cfg = new Config();
-  cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false);
-  cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true);
-  cfg.getNetworkConfig().getJoin().getTcpIpConfig().addMember("127.0.0.1");
-  val mapCfg = new MapConfig(MAP_NAME)
-  mapCfg.setMapStoreConfig(new MapStoreConfig()
-    .setEnabled(true)
-    .setImplementation(new AttributeMapStore("localhost", 3306, "stapl-attributes", "root", "root"))
-    .setWriteDelaySeconds(0)) // no write delay = write-through http://docs.hazelcast.org/docs/latest/manual/html/map-persistence.html
-  cfg.addMapConfig(mapCfg)
-  val hazelcast = Hazelcast.newHazelcastInstance(cfg);
-
-  /**
    * Construct our UpdateWorkers for the ConcurrencyController.
    */
   private val updateWorkers = scala.collection.mutable.ListBuffer[ActorRef]()
   // private val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", false /* we want to write => NOT readonly */)
   1 to nbUpdateWorkers foreach { _ =>
-    updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, new HazelcastAttributeDatabaseConnection(hazelcast.getMap(MAP_NAME))))
+    updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, new HazelcastAttributeDatabaseConnection(hazelcast.getMap(Coordinator.MAP_NAME))))
   }
   private val concurrencyController = new ConcurrencyController(self, updateWorkers.toList, log)
   //  private val concurrencyController = new MockConcurrencyController(self, updateWorkers.toList)

@@ -36,7 +36,7 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
   def sendRequest = {
     timer.time {
       val f = coordinator ? request
-      val decision: Decision = Await.ready(f, 3 seconds).value match {
+      val decision: Decision = Await.ready(f, 180 seconds).value match {
         case None =>
           // should never happen, but just in case...
           println("WTF: None received from ping???")
