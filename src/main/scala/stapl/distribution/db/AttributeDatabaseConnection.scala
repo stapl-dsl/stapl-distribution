@@ -14,6 +14,14 @@ import stapl.core.Number
 import stapl.core.Bool
 
 /**
+ * The trait for all connection pools.
+ */
+trait AttributeDatabaseConnectionPool {
+  
+  def getConnection(): AttributeDatabaseConnection
+}
+
+/**
  *
  * Constructor: sets up an open AttributeDatabaseConnection.
  */

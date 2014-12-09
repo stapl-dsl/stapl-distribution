@@ -33,6 +33,7 @@ import stapl.core.pdp.RequestCtx
 import stapl.core.pdp.BasicEvaluationCtx
 import stapl.core.pdp.RemoteEvaluator
 import stapl.core.Result
+import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 
 /**
  * Class used for representing the actor on a machine that communicates with
@@ -50,7 +51,7 @@ class SimpleForeman(coordinator: ActorRef, nbParallelEvaluations: Int, policy: A
   /**
    * The pool of database connections.
    */
-  val pool = new AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root")
+  val pool = new MySQLAttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root")
 
   /**
    * The queues of work for our Workers: one queue of work received by the

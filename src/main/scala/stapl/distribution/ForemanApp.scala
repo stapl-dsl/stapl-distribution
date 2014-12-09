@@ -20,15 +20,17 @@ import stapl.distribution.db.AttributeMapStore
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.core.IMap
 import stapl.core.AttributeContainerType
-import stapl.distribution.db.HazelcastAttributeDatabaseConnection
 import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
+import stapl.distribution.db.AttributeDatabaseConnectionPool
+import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
+import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 
 case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorIP: String = "not-provided", coordinatorPort: Int = -1,
   nbWorkers: Int = -1, policy: String = "not-provided", databaseIP: String = "not-provided",
-  databasePort: Int = -1)
+  databasePort: Int = -1, databaseType: String = "not-provided")
 
 object ForemanApp {
   def main(args: Array[String]) {
@@ -37,6 +39,8 @@ object ForemanApp {
       "ehealth" -> EhealthPolicy.naturalPolicy,
       "chinese-wall" -> ConcurrencyPolicies.chineseWall,
       "count" -> ConcurrencyPolicies.maxNbAccess)
+      
+    val dbTypes = List("hazelcast", "mysql")
 
     val parser = new scopt.OptionParser[ForemanConfig]("scopt") {
       head("STAPL - coordinator")
@@ -78,6 +82,13 @@ object ForemanApp {
       } validate { x =>
         if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
       } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
+      
+      opt[String]("db-type") required () action { (x, c) =>
+        c.copy(databaseType = x)
+      } validate { x =>
+        if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
+      } text (s"The type of database to employ. Valid values: $dbTypes")
+      
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -89,25 +100,17 @@ object ForemanApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("Foreman", customConf)
 
-      // set up hazelcast db connection
-      val MAP_NAME = "stapl-attributes"
-      val cfg = new Config()
-      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
-      val mapCfg = new MapConfig(MAP_NAME)
-      mapCfg.setMapStoreConfig(new MapStoreConfig()
-        .setEnabled(true)
-        .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-      cfg.addMapConfig(mapCfg)
-      val hazelcast = Hazelcast.newHazelcastInstance(cfg);
+      val db: AttributeDatabaseConnectionPool = config.databaseType match {
+        case "hazelcast" => new HazelcastAttributeDatabaseConnectionPool(config.coordinatorIP, config.databaseIP, config.databasePort)
+        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")          
+      }
 
       val selection =
         system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorIP}:${config.coordinatorPort}/user/coordinator")
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy),
-            new HazelcastAttributeDatabaseConnection(hazelcast.getMap(MAP_NAME))), "foreman")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), db), "foreman")
           println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers")
         case Failure(t) =>
           t.printStackTrace()

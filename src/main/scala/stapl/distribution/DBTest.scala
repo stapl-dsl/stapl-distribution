@@ -12,6 +12,7 @@ import com.hazelcast.core.IMap
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import java.util.Calendar
 import java.text.SimpleDateFormat
+import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 
 case class DBTestConfig(databaseIP: String = "not-provided", databasePort: Int = -1)
 case class HazelcastDBMasterConfig(ownIP: String = "not-provided", databaseIP: String = "not-provided", databasePort: Int = -1)
@@ -32,7 +33,7 @@ object DBWriteTest {
     }
     // parser.parse returns Option[C]
     parser.parse(args, DBTestConfig()) map { config =>
-      val pool = new AttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
+      val pool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
       val db = pool.getConnection
       while (true) {
         println("Press ENTER to update the database")

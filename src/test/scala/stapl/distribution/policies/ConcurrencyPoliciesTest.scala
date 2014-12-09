@@ -20,6 +20,7 @@ import stapl.distribution.db.LegacyAttributeDatabaseConnection
 import stapl.distribution.db.AttributeUpdatesObligationServiceModule
 import stapl.core.pdp.ObligationService
 import stapl.distribution.db.AttributeDatabaseConnectionPool
+import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 
 class ConcurrencyPoliciesTest extends AssertionsForJUnit {
 
@@ -30,7 +31,7 @@ class ConcurrencyPoliciesTest extends AssertionsForJUnit {
   import em._
   import ConcurrencyPolicies._
 
-  val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root").getConnection
+  val db = MySQLAttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root").getConnection
   val finder = new AttributeFinder
   finder += new DatabaseAttributeFinderModule(db)
   val maxNbAccessesPDPWithDb = new PDP(ConcurrencyPolicies.maxNbAccess, finder)

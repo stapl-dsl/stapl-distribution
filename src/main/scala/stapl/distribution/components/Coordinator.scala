@@ -38,6 +38,7 @@ import stapl.distribution.db.HazelcastAttributeDatabaseConnection
 import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
 import com.hazelcast.core.HazelcastInstance
+import stapl.distribution.db.AttributeDatabaseConnectionPool
 
 /**
  * Class used for temporarily storing the clients that sent an
@@ -420,7 +421,7 @@ object Coordinator {
    */
   val MAP_NAME = "stapl-attributes"
 }
-class Coordinator(hazelcast: HazelcastInstance, nbUpdateWorkers: Int) extends Actor with ActorLogging {
+class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int) extends Actor with ActorLogging {
   
   import ClientCoordinatorProtocol._
   import CoordinatorForemanProtocol._
@@ -453,7 +454,7 @@ class Coordinator(hazelcast: HazelcastInstance, nbUpdateWorkers: Int) extends Ac
   private val updateWorkers = scala.collection.mutable.ListBuffer[ActorRef]()
   // private val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", false /* we want to write => NOT readonly */)
   1 to nbUpdateWorkers foreach { _ =>
-    updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, new HazelcastAttributeDatabaseConnection(hazelcast.getMap(Coordinator.MAP_NAME))))
+    updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, pool.getConnection))
   }
   private val concurrencyController = new ConcurrencyController(self, updateWorkers.toList, log)
   //  private val concurrencyController = new MockConcurrencyController(self, updateWorkers.toList)
