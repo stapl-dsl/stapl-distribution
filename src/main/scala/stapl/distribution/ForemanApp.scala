@@ -101,7 +101,17 @@ object ForemanApp {
       val system = ActorSystem("Foreman", customConf)
 
       val db: AttributeDatabaseConnectionPool = config.databaseType match {
-        case "hazelcast" => new HazelcastAttributeDatabaseConnectionPool(config.coordinatorIP, config.databaseIP, config.databasePort)
+        case "hazelcast" => 
+          val cfg = new Config()
+          cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
+          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
+          val mapCfg = new MapConfig("stapl-attributes")
+          mapCfg.setMapStoreConfig(new MapStoreConfig()
+            .setEnabled(true)
+            .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
+          cfg.addMapConfig(mapCfg)
+          val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+          new HazelcastAttributeDatabaseConnectionPool(hazelcast)
         case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")          
       }
 

@@ -10,6 +10,7 @@ import stapl.distribution.db.HazelcastAttributeDatabaseConnection
 import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
 import stapl.core.SUBJECT
+import stapl.distribution.util.ThroughputStatistics
 
 object Master extends App {
 
@@ -43,4 +44,29 @@ object Slave extends App {
 
   println(hazelcast.get(("physician:gp:2", SUBJECT, "roles"))) // should give List(gp,physician,...)
 
+}
+
+object LongTest extends App {  
+
+  val cfg = new Config();
+  cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false);
+  cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true);
+  cfg.getNetworkConfig().getJoin().getTcpIpConfig().addMember(args(0));
+  val instance = Hazelcast.newHazelcastInstance(cfg);
+  val counter = instance.getAtomicLong("counter")
+
+  val stats = new ThroughputStatistics()
+  
+  println("Press ENTER to start counting")
+  readLine
+
+  var i = 0
+  while (true) {
+    val c = counter.incrementAndGet()
+    i += 1
+    stats.tick
+    if (i % 1000 == 0) {
+      println(s"Counter value = $c")
+    }
+  }
 }

@@ -1,15 +1,45 @@
 package stapl.distribution.util
 
+import scala.collection.mutable.Queue
+
+/**
+ * Helper class for maintaining a fixed number of interval throughputs.
+ */
+class Intervals(val maxSize: Int) {
+
+  private val intervals = Queue[Double]()
+
+  def count() = intervals.size
+
+  def mean() = {
+    if (count == 0) {
+      -1
+    } else if (count == 1) {
+      intervals(0)
+    } else {
+      grizzled.math.stats.mean(intervals: _*)
+    }
+  }
+
+  def +=(interval: Double) {
+    intervals.enqueue(interval)
+    if (count > maxSize) {
+      intervals.dequeue
+    }
+  }
+}
+
 /**
  * Class used for keeping and printing throughput statistics.
  */
-class ThroughputStatistics {
+class ThroughputStatistics(intervalSize: Int = 1000) {
   val totalStart = System.nanoTime()
   var intervalStart = System.nanoTime()
 
   var totalCounter = 0L
   var intervalCounter = 0L
-  
+  var lastIntervals = new Intervals(10)
+
   def tick() = {
     totalCounter += 1
     intervalCounter += 1L
@@ -30,13 +60,13 @@ class ThroughputStatistics {
     val now = System.nanoTime()
     (now.toDouble - intervalStart.toDouble) / 1000000.0
   }
-  
+
   /**
    * In requests/sec
    */
-  def totalThroughput = totalCount.toDouble / (totalDuration/1000)
-  def intervalThroughput = intervalCount.toDouble / (intervalDuration/1000)
-  
+  def totalThroughput = totalCount.toDouble / (totalDuration / 1000)
+  def intervalThroughput = intervalCount.toDouble / (intervalDuration / 1000)
+
   def resetInterval = {
     intervalStart = System.nanoTime()
     intervalCounter = 0
@@ -44,7 +74,17 @@ class ThroughputStatistics {
 
   def printThroughput {
     if (intervalCount % 1000 == 0 && intervalCount > 1000 && intervalDuration > 1000) {
-      println(f"Coordinator: total throughput = $totalThroughput%2.2f requests/sec, last interval throughput = $intervalThroughput%2.2f")
+      val i = intervalThroughput
+      lastIntervals += i
+      // print
+      val intervalsLabel = f"Mean throughput over last ${lastIntervals.count} intervals = "
+      val total = "Total throughput = ".padTo(intervalsLabel.size, ' ') + f"$totalThroughput%2.2f requests/sec"
+      val intervals = intervalsLabel + f"${lastIntervals.mean}%2.2f requests/sec"
+      val last = "Last interval throughput = ".padTo(intervalsLabel.size, ' ') + f"$i%2.2f requests/sec"
+      println(total)
+      println(intervals)
+      println(last)
+      println("=========".padTo(last.size, '='))
       resetInterval
     }
   }

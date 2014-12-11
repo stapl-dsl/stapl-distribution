@@ -15,19 +15,15 @@ import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.Attribute
-import stapl.core.ConcreteChangeAttributeObligationAction
-import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.Update
 import stapl.core.Append
 import scala.collection.mutable.Set
 import scala.collection.mutable.MultiMap
 import scala.collection.mutable.HashMap
-import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.ConcreteValue
 import stapl.core.SUBJECT
 import stapl.core.RESOURCE
 import akka.event.LoggingAdapter
-import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.distribution.db.HazelcastAttributeDatabaseConnection
 import com.hazelcast.config.Config
 import stapl.distribution.db.AttributeMapStore
@@ -39,96 +35,12 @@ import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
 import com.hazelcast.core.HazelcastInstance
 import stapl.distribution.db.AttributeDatabaseConnectionPool
-
-/**
- * Class used for temporarily storing the clients that sent an
- * authorization request so that we can pass the decision back
- * to the client later on.
- */
-class ClientAuthorizationRequestManager() {
-
-  import scala.collection.mutable.Map
-
-  private var counter = 0
-
-  private val clients: Map[String, ActorRef] = Map()
-
-  /**
-   * Stores the actor in the cache and returns the generated
-   * id of its authorization request.
-   */
-  def store(actor: ActorRef) = {
-    val id = s"$counter"
-    clients(id) = actor
-    counter += 1
-    id
-  }
-
-  /**
-   * Returns the actor that sent the authorization request with the given id
-   * and removes this actor from the map.
-   */
-  def get(id: String) = {
-    val result = clients(id)
-    clients.remove(id)
-    result
-  }
-}
-
-/**
- * Class used for managing foremen.
- */
-class ForemanManager {
-
-  val foremen = Map.empty[ActorRef, Option[List[PolicyEvaluationRequest]]]
-
-  /**
-   * Add the given Foreman to the list of Foremen (as idle).
-   */
-  def +=(foreman: ActorRef) = foremen(foreman) = None
-
-  /**
-   * Remove the given Foremen from the list of Foremen.
-   */
-  def -=(foreman: ActorRef) = foremen -= foreman
-
-  /**
-   * Returns whether the given foreman is managed by this manager.
-   */
-  def contains(foreman: ActorRef) = foremen.contains(foreman)
-
-  /**
-   * Returns the idle foremen.
-   */
-  def idle = foremen.filter(_._2.isEmpty).keys
-
-  /**
-   * Returns whether the given foremen is idle.
-   */
-  def isIdle(foreman: ActorRef) = foremen(foreman) == None
-
-  /**
-   * Returns whether the given foreman is busy.
-   */
-  def isBusy(foreman: ActorRef) = !isIdle(foreman)
-
-  /**
-   * Set the given foreman as busy on the given work.
-   */
-  def foremanStartedWorkingOn(foreman: ActorRef, work: List[PolicyEvaluationRequest]) =
-    // FIXME not correct, this should be an append if the foreman already has work
-    foremen(foreman) = Some(work)
-
-  /**
-   * Set the given foreman as idle.
-   */
-  def foremanIsNowIdle(foreman: ActorRef) = foremen(foreman) = None
-
-  /**
-   * Returns the work currently assigned to the given foreman.
-   */
-  def getWork(foreman: ActorRef) = foremen(foreman)
-}
+import com.hazelcast.core.ItemListener
+import com.hazelcast.core.ItemEvent
+import stapl.core.pdp.SimpleTimestampGenerator
+import scala.util.Random
+import scala.concurrent.duration._
+import scala.util.{ Success, Failure }
 
 /**
  * Class used for concurrency control.
@@ -144,7 +56,7 @@ class ForemanManager {
  * These are the attributes that have been written by another evaluation while ongoing
  * and apply to either the subject or the resource of this evaluation.
  */
-class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef], log: LoggingAdapter) {
+class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef], log: LoggingAdapter) {
 
   import scala.collection.mutable.Map
 
@@ -159,6 +71,14 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
    */
   private val subjectId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
   private val resourceId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
+
+  /**
+   * A multimap that stores what we manage for a certain request: the subject,
+   * the resource or both.
+   *
+   * This is only needed for restarting the request.
+   */
+  val weManage = new HashMap[String, Set[AttributeContainerType]] with MultiMap[String, AttributeContainerType]
 
   /**
    * The lists of attributes that have been updated during a certain policy evaluation.
@@ -182,38 +102,69 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
 
   /**
    * Indicates to the controller that the evaluation of the given
-   * request is going to start.
+   * request is going to start and that this controller should do
+   * the administration for the subject of the request.
    *
-   * This method returns the original request with the appropriate
+   * This method adds the original request with the appropriate
    * attributes added. These attributes are attributes that are
    * currently being updated as the result of previous policy evaluations
    * but are not sure to bhe committed in the database yet.
    */
-  def start(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
+  def startForSubject(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // set up the administration
     ongoingEvaluations(request.id) = request
     subjectId2Evaluation.addBinding(request.subjectId, request)
-    resourceId2Evaluation.addBinding(request.resourceId, request)
+    weManage.addBinding(request.id, SUBJECT)
     updatesWhileEvaluating(request.id) = ListBuffer()
+
     // add suitable attributes of ongoing attribute updates
     addSuitableAttributes(request)
   }
-  
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to start and that this controller should do
+   * the administration for the subject of the request.
+   *
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to bhe committed in the database yet.
+   */
+  def startForResource(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
+    // set up the administration
+    ongoingEvaluations(request.id) = request
+    resourceId2Evaluation.addBinding(request.resourceId, request)
+    weManage.addBinding(request.id, RESOURCE)
+    updatesWhileEvaluating(request.id) = ListBuffer()
+
+    // add suitable attributes of ongoing attribute updates
+    addSuitableAttributes(request)
+  }
+
   /**
    * Indicates to the controller that the evaluation of the given request
    * is going to restart. This resets the list of updates while evaluating
    * the request and returns the given request with the appropriate
-   * attributes added (see start()). 
+   * attributes added (see start()).
+   *
+   * Note: if we manage both the subject and the resource of this request,
+   * this method will have added the necessary attributes for both
    */
   def restart(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // reset the administration
     updatesWhileEvaluating(request.id) = ListBuffer()
     // add suitable attributes of ongoing attribute updates
+    // Note: if we manage both the subject and the resource of this request,
+    // 		 this method will have added the necessary attributes for both
     addSuitableAttributes(request)
   }
-  
-  private def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {    
+
+  private def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     var attributes = request.extraAttributes
+    // Note: subjectId2OngoingUpdates will only contain this request if
+    // we should also manage this request => this method can be used from
+    // both the subject-specific and resource-specific methods.
     if (subjectId2OngoingUpdates.contains(request.subjectId)) {
       val toAdd = subjectId2OngoingUpdates(request.subjectId).toSeq
       attributes ++= toAdd
@@ -236,6 +187,13 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
    * *correctly* so that you can assume that the evaluation is committed.
    */
   def commit(result: PolicyEvaluationResult): Boolean = {
+
+    // TODO HIER MOET NOG VEEL AAN VERANDEREN
+    // - commit enkel de updates van de entiteit die wij wel degelijk managen!
+    // - check of we enkel het subject of de resource van het request managen
+    //		of beide. If beide: doe de hele commit nu. If slechts eens: overleg
+    // 		met de andere coordinator
+
     val id = result.id
     // 1. check if we *can* commit: check for read-write conflicts
     val possibleConflicts = updatesWhileEvaluating(id)
@@ -365,64 +323,125 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
 }
 
 /**
- * For disabling concurrency control.
+ * Trait used for representing a group of coordinators.
  */
-class MockConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef], log: LoggingAdapter)
-  extends ConcurrencyController(null, List(), null) {
-
-  updateWorkers foreach { _ ! "terminate" }
-
-  override def start(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
-    // do nothing
-    request
-  }
-
-  override def commit(result: PolicyEvaluationResult): Boolean = {
-    // do nothing
-    true
-  }
-
-  override def updateFinished(updateWorker: ActorRef): Unit = {
-    // do nothing
-  }
-}
-
-/**
- * Actor used for processing attribute updates asynchronously from the
- * coordinator. Every message sent to this UpdateWorker is handled sequentially
- * and blocking, so be sure to assign UpdateWorkers to separate threads.
- */
-class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
+trait CoordinatorGroup {
 
   /**
-   * Note: we use the ObligationActions as messages.
+   * Sends the request to this group of coordinators. Behind the scenes,
+   * this may mean: send it to a random coordinator, to the approrpriate
+   * coordinator, to all of them,...
    */
-  def receive = {
-
-    /**
-     * Update an attribute value.
-     */
-    case update: ConcreteChangeAttributeObligationAction =>
-      log.debug(s"Starting attribute update: $update")
-      val ConcreteChangeAttributeObligationAction(entityId, attribute, value, changeType) = update
-      changeType match {
-        case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
-        case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
-      }
-      coordinator ! UpdateFinished(self)
-      log.debug(s"Finished attribute update: $update")
-
-    case "terminate" => context.stop(self)
-
-    case x => log.warning(s"Unknown message receiced: $x")
-  }
-
+  def !(request: ClientCoordinatorProtocol.AuthorizationRequest)
 }
 
 /**
- * For communication between the UpdateWorkers and the Coordinator.
+ * Class used for managing the different coordinators in the whole system.
+ *
+ * We store this list locally in order to speed up finding the correct coordinator
+ * for a certain request (although I am not sure whether Hazelcast requires
+ * network communication to read the list). In order to stay up-to-date with
+ * new members, we also listen to events on the list.
+ *
+ * Note TODO: we currently do not take into account coordinator failure
+ *
+ * Note: we currently do not support adding a new coordinator when the system is
+ * in operation, i.e., the system will probably work correctly, but correct concurrency
+ * control is not guaranteed for the evaluation that are ongoing when a coordinator
+ * joins.
  */
-case class UpdateFinished(updateWorker: ActorRef)
+class ConcurrentCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: ActorSystem) extends CoordinatorGroup with ItemListener[(String, Int)] {
+
+  import scala.collection.JavaConversions._
+  import akka.serialization._
+
+  /**
+   * The Hazelcast list of IP addresses and ports on which Akka coordinators are listening.
+   */
+  private val backend = hazelcast.getList[(String, Int)]("stapl-coordinators")
+
+  private var coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
+
+  // set up the initial list of coordinators based on the list in Hazelcast
+  backend foreach { addCoordinator(_) }
+
+  // listen to updates to keep up-to-date
+  backend.addItemListener(this, true)
+
+  /**
+   * Helper methods to update the local list to the values in Hazelcast
+   */
+  private def addCoordinator(x: (String, Int)) = {
+    val (ip, port) = x
+    val selection = actorSystem.actorSelection(s"akka.tcp://STAPL-coordinator@$ip:$port/user/coordinator")
+    implicit val dispatcher = actorSystem.dispatcher
+    selection.resolveOne(3.seconds).onComplete {
+      case Success(coordinator) =>
+        coordinators += coordinator
+        println(s"Found and added coordinator at $x")
+      case Failure(t) =>
+        println(s"Did not find coordinator at $x: ")
+        t.printStackTrace()
+    }
+  }
+
+  /**
+   * When an item is added, just reset the list
+   */
+  def itemAdded(e: ItemEvent[(String, Int)]): Unit = {
+    addCoordinator(e.getItem())
+  }
+
+  /**
+   *
+   */
+  def itemRemoved(e: ItemEvent[(String, Int)]): Unit = {
+    // TODO implement
+  }
+
+  /**
+   * Registers the given Actor as ConcurrentCoordinator.
+   */
+  def register(ip: String, port: Int): Unit = {
+    backend.add((ip,port))
+    // the registered actor will be added to $coordinators by itemAdded()
+  }
+
+  /**
+   * Returns the Coordinator that manages the evaluations for the
+   * given subject.
+   */
+  def getCoordinatorForSubject(entityId: String) = {
+    val key = SUBJECT + ":" + entityId
+    val hash = key.hashCode()
+    coordinators(hash % coordinators.size)
+  }
+
+  /**
+   * Returns the Coordinator that manages the evaluations for the
+   * given subject.
+   */
+  def getCoordinatorForResource(entityId: String) = {
+    val key = RESOURCE + ":" + entityId
+    val hash = key.hashCode()
+    coordinators(hash % coordinators.size)
+  }
+
+  /**
+   * Sends the given request to the coordinator responsible for managing
+   * either the subject or resource of this request. The final coordinator
+   * is chosen at random in order to divide the requests approximately evenly.
+   */
+  override def !(request: ClientCoordinatorProtocol.AuthorizationRequest) {
+    import ClientCoordinatorProtocol.AuthorizationRequest
+    import ClientConcurrentCoordinatorProtocol._
+    val ClientCoordinatorProtocol.AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) = request
+    Random.nextBoolean match {
+      case true => getCoordinatorForSubject(subjectId) ! AuthorizationRequestAndManageSubject(subjectId, actionId, resourceId, extraAttributes)
+      case false => getCoordinatorForResource(resourceId) ! AuthorizationRequestAndManageResource(subjectId, actionId, resourceId, extraAttributes)
+    }
+  }
+}
 
 /**
  * Class used for representing the Coordinator that manages all foremen
@@ -433,10 +452,12 @@ case class UpdateFinished(updateWorker: ActorRef)
  * if the foreman has finished certain jobs except if he sends a "Finished" message
  * (so not in the "give me more" message)
  */
-class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, disableConcurrencyControl: Boolean = false) extends Actor with ActorLogging {
+class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int,
+  coordinatorManager: ConcurrentCoordinatorManager) extends Actor with ActorLogging {
 
-  import ClientCoordinatorProtocol._
+  import ClientConcurrentCoordinatorProtocol._
   import CoordinatorForemanProtocol._
+  import ConcurrentCoordinatorProtocol._
 
   /**
    *  Holds known workers and what they may be working on
@@ -453,12 +474,19 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
    * Holds the mapping between the clients and the authorization requests
    * they sent.
    */
-  private val clients = new ClientAuthorizationRequestManager
+  private val clients: Map[String, ActorRef] = Map()
 
   /**
    * Some statistics of the throughput
    */
   private val stats = new ThroughputStatistics
+
+  /**
+   * A timestamp generator for generating ids for the evaluations.
+   */
+  private val timestampGenerator = new SimpleTimestampGenerator
+
+  def constructNextId() = s"$coordinatorId:${timestampGenerator.getTimestamp}"
 
   /**
    * Construct our UpdateWorkers for the ConcurrencyController.
@@ -468,14 +496,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
   1 to nbUpdateWorkers foreach { _ =>
     updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, pool.getConnection))
   }
-  private val concurrencyController = disableConcurrencyControl match {
-    case false =>
-      new ConcurrencyController(self, updateWorkers.toList, log)
-    case true =>
-      log.debug("Disabled concurrency control")
-      new MockConcurrencyController(self, updateWorkers.toList, log)
-  }
-  //  private val concurrencyController = new MockConcurrencyController(self, updateWorkers.toList)
+  private val concurrencyController = new ConcurrentConcurrencyController(self, updateWorkers.toList, log)
 
   /**
    * A mapping of id->request for restarting requests efficiently.
@@ -540,7 +561,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
       }
 
     /**
-     *  A worker died. If he was doing anything then we need
+     *  A worker died.  If he was doing anything then we need
      *  to give it to someone else so we just add it back to the
      *  master and let things progress as usual
      */
@@ -562,15 +583,67 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
       foremen -= foreman
 
     /**
-     *
+     * A clients sends an authorization request and indicates that this coordinator
+     * should manage either the subject.
      */
-    case AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) =>
-      log.debug(s"Queueing ($subjectId, $actionId, $resourceId, $extraAttributes) from $sender")
-      val id = clients.store(sender)
+    case AuthorizationRequestAndManageSubject(subjectId, actionId, resourceId, extraAttributes) =>
+      val client = sender
+      // log
+      log.debug(s"Queueing ($subjectId, $actionId, $resourceId) from $client (I should manage the subject)")
+      // this is a request from a client => construct an id
+      val id = constructNextId()
+      // add the attributes according to our own administration
       val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
-      id2request(id) = original
-      val updated = concurrencyController.start(original)
-      workQ.enqueue(updated)
+      val updated = concurrencyController.startForSubject(original)
+      // forward the request to the coordinator managing the rest of the administration
+      coordinatorManager.getCoordinatorForSubject(subjectId) ! StartRequestAndManageResource(self, client, original, updated)
+
+    /**
+     * A clients sends an authorization request and indicates that this coordinator
+     * should manage either the resource.
+     */
+    case AuthorizationRequestAndManageResource(subjectId, actionId, resourceId, extraAttributes) =>
+      val client = sender
+      // log
+      log.debug(s"Queueing ($subjectId, $actionId, $resourceId, $extraAttributes) from $client (I should manage the resource)")
+      // this is a request from a client => construct an id
+      val id = constructNextId()
+      // add the attributes according to our own administration
+      val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
+      val updated = concurrencyController.startForResource(original)
+      // forward the request to the coordinator managing the rest of the administration
+      coordinatorManager.getCoordinatorForResource(resourceId) ! StartRequestAndManageSubject(self, client, original, updated)
+
+    /**
+     * Another coordinator sends a request for us to manage the subject and evaluate
+     * the given request.
+     */
+    case StartRequestAndManageSubject(sendingCoordinator, client, original, updated) =>
+      // log
+      log.debug(s"Queueing $updated from $client via $sendingCoordinator (I should manage the subject)")
+      // store the client to forward the result later on
+      clients(original.id) = client
+      // add the attributes according to our own administration
+      val updatedAgain = concurrencyController.startForSubject(updated)
+      // evaluate the request
+      id2request(original.id) = original
+      workQ.enqueue(updatedAgain)
+      notifyForemen
+
+    /**
+     * Another coordinator sends a request for us to manage the resource and evaluate
+     * the given request.
+     */
+    case StartRequestAndManageResource(sendingCoordinator, client, original, updated) =>
+      // log
+      log.debug(s"Queueing $updated from $client via $sendingCoordinator (I should manage the resource)")
+      // store the client to forward the result later on
+      clients(original.id) = client
+      // add the attributes according to our own administration
+      val updatedAgain = concurrencyController.startForResource(updated)
+      // evaluate the request
+      id2request(original.id) = original
+      workQ.enqueue(updatedAgain)
       notifyForemen
 
     /**
@@ -584,16 +657,38 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
         // the commit succeeded => remove the request from our administration and 
         // return the result to the client
         id2request.remove(id)
-        val client = clients.get(id)
-        client ! AuthorizationDecision(result.result.decision)
+        val client = clients(id)
+        client ! ClientCoordinatorProtocol.AuthorizationDecision(result.result.decision)
         stats.tick
       } else {
-        // the commit failed => restart the evaluation (add the necesary
-        // attributes to the original again)
         log.warning(s"Conflicting evaluation found, restarting $id")
+        // the commit failed => restart the evaluation by resetting our administration,
+        // adding the appropriate attributes to the original and sending this to the 
+        // appropriate coordinator
         val original = id2request(id)
         val updated = concurrencyController.restart(original)
-        workQ.enqueue(updated)
+        val weManage = concurrencyController.weManage(id)
+        if (weManage.size == 2) {
+          // We can start this evaluation right now! 
+          // => do not clean up any administration          
+          workQ.enqueue(updated)
+          notifyForemen
+        } else if (weManage.contains(SUBJECT)) {
+          val client = clients(original.id)
+          // clean up the administration
+          clients.remove(original.id)
+          id2request.remove(original.id)
+          // send the request to the other coordinator
+          coordinatorManager.getCoordinatorForResource(original.resourceId) ! RestartRequestAndManageResource(self, client, original, updated)
+        } else {
+          // weManage.contains(RESOURCE)
+          val client = clients(original.id)
+          // clean up the administration
+          clients.remove(original.id)
+          id2request.remove(original.id)
+          // send the request to the other coordinator
+          coordinatorManager.getCoordinatorForSubject(original.subjectId) ! RestartRequestAndManageSubject(self, client, original, updated)
+        }
       }
 
     /**

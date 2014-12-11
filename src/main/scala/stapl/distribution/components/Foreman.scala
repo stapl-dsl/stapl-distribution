@@ -19,6 +19,7 @@ import stapl.core.AbstractPolicy
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.distribution.db.AttributeDatabaseConnectionPool
+import stapl.distribution.util.ThroughputStatistics
 
 /**
  * Class used for managing workers.
@@ -96,6 +97,11 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
    * The management of our workers.
    */
   val workers = new WorkerManager
+
+  /**
+   * Some statistics of the throughput
+   */
+  private val stats = new ThroughputStatistics
   
   /**
    * Returns whether we should preventively request more work because of 
@@ -168,6 +174,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
      */
     case ForemanWorkerProtocol.WorkerIsDoneAndRequestsWork(worker) =>
       log.debug(s"A worker finished his work: $worker")
+      stats.tick
       workers.setIdle(worker)
       self ! ForemanWorkerProtocol.WorkerRequestsWork(worker)
       // keep the coordinator up-to-date and ask for more work if needed

@@ -19,27 +19,12 @@ import com.hazelcast.core.IMap
 import java.util.HashMap
 import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
+import com.hazelcast.core.HazelcastInstance
 
-class HazelcastAttributeDatabaseConnectionPool(coordinatorIP: String, databaseIP: String, databasePort: Int)
+class HazelcastAttributeDatabaseConnectionPool(hazelcast: HazelcastInstance)
   extends AttributeDatabaseConnectionPool {
-
-  val MAP_NAME = "stapl-attributes"
-  val cfg = new Config()
-  cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-  cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(coordinatorIP)
-  val mapCfg = new MapConfig(MAP_NAME)
-  mapCfg.setMapStoreConfig(new MapStoreConfig()
-    .setEnabled(true)
-    .setImplementation(new AttributeMapStore(databaseIP, databasePort, "stapl-attributes", "root", "root")))
-  cfg.addMapConfig(mapCfg)
-  val hazelcast = Hazelcast.newHazelcastInstance(cfg)
   
-  override def getConnection = new HazelcastAttributeDatabaseConnection(hazelcast.getMap(MAP_NAME))
-}
-object HazelcastAttributeDatabaseConnectionPool {
-  
-  def apply(coordinatorIP: String, databaseIP: String, databasePort: Int) = 
-    new HazelcastAttributeDatabaseConnectionPool(coordinatorIP, databaseIP, databasePort)
+  override def getConnection = new HazelcastAttributeDatabaseConnection(hazelcast.getMap("stapl-attributes"))
 }
 
 /**

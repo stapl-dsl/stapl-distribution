@@ -41,7 +41,7 @@ object ConcurrentAsyncTest extends App {
     finder += new DatabaseAttributeFinderModule(conn)
 
     val ctx = new BasicEvaluationCtx(
-      i, new RequestCtx(em.maarten.id, "view", em.maartenStatus.id),
+      s"$i", new RequestCtx(em.maarten.id, "view", em.maartenStatus.id),
       finder, new RemoteEvaluator)
 
 //    println(pdp.evaluate(ctx))

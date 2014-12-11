@@ -17,17 +17,17 @@ import com.hazelcast.core.Hazelcast
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
+import stapl.distribution.components.ConcurrentCoordinatorManager
+import stapl.distribution.components.ConcurrentCoordinator
 
-case class CoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
-  databaseIP: String = "not-provided", databasePort: Int = -1, databaseType: String = "not-provided", disableConcurrencyControl: Boolean = false)
+case class ConcurrentCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
+  databaseIP: String = "not-provided", databasePort: Int = -1, otherCoordinatorIP: String = "not-provided")
 
-object CoordinatorApp {
+object ConcurrentCoordinatorApp {
 
   def main(args: Array[String]) {
 
-    val dbTypes = List("hazelcast", "mysql")
-
-    val parser = new scopt.OptionParser[CoordinatorConfig]("scopt") {
+    val parser = new scopt.OptionParser[ConcurrentCoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
 
       opt[String]('h', "hostname") required () action { (x, c) =>
@@ -55,20 +55,14 @@ object CoordinatorApp {
         c.copy(databasePort = x)
       } text ("The port on which the database containing the attributes is listening.")
 
-      opt[String]("db-type") required () action { (x, c) =>
-        c.copy(databaseType = x)
-      } validate { x =>
-        if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
-      } text (s"The type of database to employ. Valid values: $dbTypes")
-
-      opt[Unit]("disable-cc") action { (_, c) =>
-        c.copy(disableConcurrencyControl = true)
-      } text ("Disable concurrency control.")
+      opt[String]("other-coordinator-ip") action { (x, c) =>
+        c.copy(otherCoordinatorIP = x)
+      } text ("The IP address of another coordinator in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
 
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, CoordinatorConfig()) map { config =>
+    parser.parse(args, ConcurrentCoordinatorConfig()) map { config =>
       // set up the Actor system
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
@@ -78,25 +72,29 @@ object CoordinatorApp {
       val system = ActorSystem("STAPL-coordinator", customConf)
 
       // set up hazelcast
+      val cfg = new Config()
+      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
+      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
+      val mapCfg = new MapConfig("stapl-attributes")
+      mapCfg.setMapStoreConfig(new MapStoreConfig()
+        .setEnabled(true)
+        .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
+      cfg.addMapConfig(mapCfg)
+      val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+      // set up the database
+      val pool = new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+      // set up the coordinator manager
+      val coordinatorManager = new ConcurrentCoordinatorManager(hazelcast, system)
+      // get the id of our coordinator
+      val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
 
-      val db: AttributeDatabaseConnectionPool = config.databaseType match {
-        case "hazelcast" =>
-          val cfg = new Config()
-          cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
-          val mapCfg = new MapConfig("stapl-attributes")
-          mapCfg.setMapStoreConfig(new MapStoreConfig()
-            .setEnabled(true)
-            .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-          cfg.addMapConfig(mapCfg)
-          val hazelcast = Hazelcast.newHazelcastInstance(cfg)
-          new HazelcastAttributeDatabaseConnectionPool(hazelcast)
-        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
-      }
+      // set up the coordinator
+      val coordinator = system.actorOf(Props(classOf[ConcurrentCoordinator], coordinatorId, pool, config.nbUpdateWorkers, coordinatorManager), "coordinator")
+      
+      // register the coordinator
+      coordinatorManager.register(config.ip,config.port)
 
-      val coordinator = system.actorOf(Props(classOf[Coordinator], db, config.nbUpdateWorkers, config.disableConcurrencyControl), "coordinator")
-
-      println(s"Coordinator up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers and concurrency control ${if (config.disableConcurrencyControl) "disabled" else "enabled"}")
+      println(s"ConcurrentCoordinator #$coordinatorId up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }
