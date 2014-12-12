@@ -333,7 +333,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
             updatesWhileEvaluating(x.id) += change.attribute
             log.debug(s"Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
           }
-        case x => throw new IllegalArgumentException(s"For now, we can only process attribute changes. Given ObligationAction: $x")
+        case x => log.error(s"For now, we can only process attribute changes. Ignored the given ObligationAction: $x")
       }
     }
     // remove the evaluation from the administration
