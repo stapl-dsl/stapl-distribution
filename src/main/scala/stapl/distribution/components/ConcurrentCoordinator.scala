@@ -257,7 +257,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
    * attributes added (see start()).
    *
    * Note: if we manage both the subject and the resource of this request,
-   * this method will have added the necessary attributes for both
+   * this method will have added the necessary attributes for both.
    */
   def restart(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // reset the administration
@@ -268,6 +268,10 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     addSuitableAttributes(request)
   }
 
+  /**
+   * Note: if we manage both the subject and the resource of this request,
+   * this method will have added the necessary attributes for both.
+   */
   private def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     var attributes = request.extraAttributes
     // Note: subjectId2OngoingUpdates will only contain this request if
