@@ -28,7 +28,7 @@ import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 
 case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
-  coordinatorIP: String = "not-provided", coordinatorPort: Int = -1,
+  foremanManagerIP: String = "not-provided", foremanManagerPort: Int = -1, foremanManagerPath: String = "not-provided",
   nbWorkers: Int = -1, policy: String = "not-provided", databaseIP: String = "not-provided",
   databasePort: Int = -1, databaseType: String = "not-provided")
 
@@ -57,13 +57,17 @@ object ForemanApp {
         c.copy(port = x)
       } text ("The port on which this foreman will be listening. 0 for a random port")
       
-      opt[String]("coordinator-ip") required () action { (x, c) =>
-        c.copy(coordinatorIP = x)
-      } text ("The IP address of the machine on which the coordinator is running.")
+      opt[String]("foreman-manager-ip") required () action { (x, c) =>
+        c.copy(foremanManagerIP = x)
+      } text ("The IP address of the machine on which the foreman manager is running.")
       
-      opt[Int]("coordinator-port") required () action { (x, c) =>
-        c.copy(coordinatorPort = x)
-      } text ("The port on which the coordinator is listening.")
+      opt[Int]("foreman-manager-port") required () action { (x, c) =>
+        c.copy(foremanManagerPort = x)
+      } text ("The port on which the foreman manager is listening.")
+      
+      opt[String]("foreman-manager-path") required () action { (x, c) =>
+        c.copy(foremanManagerPath = x)
+      } text ("The Akka actor path of the foreman manager after /user/")
       
       opt[String]("database-ip") required () action { (x, c) =>
         c.copy(databaseIP = x)
@@ -104,7 +108,7 @@ object ForemanApp {
         case "hazelcast" => 
           val cfg = new Config()
           cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
+          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.foremanManagerIP)
           val mapCfg = new MapConfig("stapl-attributes")
           mapCfg.setMapStoreConfig(new MapStoreConfig()
             .setEnabled(true)
@@ -116,7 +120,7 @@ object ForemanApp {
       }
 
       val selection =
-        system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorIP}:${config.coordinatorPort}/user/coordinator")
+        system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.foremanManagerIP}:${config.foremanManagerPort}/user/${config.foremanManagerPath}")
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>

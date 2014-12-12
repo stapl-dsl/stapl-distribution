@@ -17,16 +17,17 @@ import akka.routing.BroadcastPool
 import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
-import stapl.distribution.components.InitialPeakClient
+import stapl.distribution.components.InitialPeakClientForConcurrentCoordinators
+import stapl.distribution.components.RemoteConcurrentCoordinatorGroup
 
-case class InitialPeakClientConfig(name: String = "not-provided",
+case class InitialPeakClientForConcurrentCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
-  coordinatorHostname: String = "not-provided", coordinatorPort: Int = -1,
+  coordinatorManagerHostname: String = "not-provided", coordinatorManagerPort: Int = -1,
   nbRequests: Int = -1)
 
-object InitialPeakClientApp {
+object InitialPeakClientForConcurrentCoordinatorsApp {
   def main(args: Array[String]) {
-    val parser = new scopt.OptionParser[InitialPeakClientConfig]("scopt") {
+    val parser = new scopt.OptionParser[InitialPeakClientForConcurrentCoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
       opt[String]("name") required () action { (x, c) =>
         c.copy(name = x)
@@ -37,19 +38,19 @@ object InitialPeakClientApp {
       opt[Int]("port") required () action { (x, c) =>
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
-      opt[String]("coordinator-hostname") required () action { (x, c) =>
-        c.copy(coordinatorHostname = x)
-      } text ("The hostname of the machine on which the coordinator is running.")
-      opt[Int]("coordinator-port") required () action { (x, c) =>
-        c.copy(coordinatorPort = x)
-      } text ("The port on which the coordinator is listening.")
+      opt[String]("coordinator-manager-hostname") required () action { (x, c) =>
+        c.copy(coordinatorManagerHostname = x)
+      } text ("The hostname of the machine on which the concurrent coordinators and their manager are running.")
+      opt[Int]("coordinator-manager-port") required () action { (x, c) =>
+        c.copy(coordinatorManagerPort = x)
+      } text ("The port on which the concurrent coordinators and their manager are running.")
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
       } text ("The number of requests to send to the coordinator.")
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, InitialPeakClientConfig()) map { config =>
+    parser.parse(args, InitialPeakClientForConcurrentCoordinatorConfig()) map { config =>
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
@@ -57,19 +58,10 @@ object InitialPeakClientApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
 
-      val selection =
-        system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorHostname}:${config.coordinatorPort}/user/coordinator")
-      implicit val dispatcher = system.dispatcher
-      selection.resolveOne(3.seconds).onComplete {
-        case Success(coordinator) =>
-          import components.ClientProtocol._
-          val client = system.actorOf(Props(classOf[InitialPeakClient], coordinator, config.nbRequests), "client")
-          client ! "go"
-          println(s"InitialPeak client started at ${config.hostname}:${config.port} with ${config.nbRequests} requests")
-        case Failure(t) =>
-          t.printStackTrace()
-          system.shutdown
-      }
+      val coordinators = new RemoteConcurrentCoordinatorGroup(system, config.coordinatorManagerHostname, config.coordinatorManagerPort)
+      val client = system.actorOf(Props(classOf[InitialPeakClientForConcurrentCoordinators], coordinators, config.nbRequests), "client")
+      client ! "go"
+      println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

@@ -90,8 +90,8 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
    * The queues of work for our Workers: one queue of work received by the
    * foreman, one queue of work received by the workers (intermediate requests).
    */
-  val externalWorkQ = Queue.empty[PolicyEvaluationRequest]
-  val internalWorkQ = Queue.empty[PolicyEvaluationRequest]
+  val externalWorkQ = Queue.empty[(PolicyEvaluationRequest,ActorRef)]
+  val internalWorkQ = Queue.empty[(PolicyEvaluationRequest,ActorRef)]
 
   /**
    * The management of our workers.
@@ -133,7 +133,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
   override def preStart() = {
     // create our workers
     1 to nbWorkers foreach { _ =>
-      workers += context.actorOf(Props(classOf[Worker], coordinator, self, policy, null, pool.getConnection)) // TODO pass policy and attribute cache
+      workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection)) // TODO pass policy and attribute cache
     }
     // notify the coordinator
     coordinator ! CoordinatorForemanProtocol.ForemanCreated(self)
@@ -162,7 +162,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
      *
      * We will only receive this when we asked for it => add the work to the queue
      */
-    case CoordinatorForemanProtocol.WorkToBeDone(requests: List[PolicyEvaluationRequest]) =>
+    case CoordinatorForemanProtocol.WorkToBeDone(requests: List[(PolicyEvaluationRequest,coordinator)]) =>
       log.debug(s"The coordinator sent work: $requests")
       externalWorkQ ++= requests
       notifyWorkers
@@ -197,12 +197,12 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
       // give internal requests priority in order to keep the total latency
       // of policy evaluations minimal
       if (!internalWorkQ.isEmpty) {
-        val work = internalWorkQ.dequeue
-        worker ! ForemanWorkerProtocol.WorkToBeDone(work)
+        val (request,coordinator) = internalWorkQ.dequeue
+        worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
         workers.setBusy(worker)
       } else if (!externalWorkQ.isEmpty) {
-        val work = externalWorkQ.dequeue
-        worker ! ForemanWorkerProtocol.WorkToBeDone(work)
+        val (request,coordinator) = externalWorkQ.dequeue
+        worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
         workers.setBusy(worker)
       }
 

@@ -19,17 +19,15 @@ import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 import stapl.distribution.components.ConcurrentCoordinator
 import stapl.distribution.components.DistributedCoordinatorManager
-import stapl.distribution.components.ConcurrentCoordinatorManager
-import stapl.distribution.components.ForemanManager
 
-case class ConcurrentCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
-  databaseIP: String = "not-provided", databasePort: Int = -1, nbCoordinators: Int = -1)
+case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
+  databaseIP: String = "not-provided", databasePort: Int = -1, otherCoordinatorIP: String = "not-provided")
 
-object ConcurrentCoordinatorApp {
+object DistributedCoordinatorApp {
 
   def main(args: Array[String]) {
 
-    val parser = new scopt.OptionParser[ConcurrentCoordinatorConfig]("scopt") {
+    val parser = new scopt.OptionParser[DistributedCoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
 
       opt[String]('h', "hostname") required () action { (x, c) =>
@@ -45,13 +43,9 @@ object ConcurrentCoordinatorApp {
       } text ("The port on which this coordinator will be listening.")
       help("help") text ("prints this usage text")
 
-      opt[Int]("nb-workers") required () action { (x, c) =>
+      opt[Int]("nbWorkers") required () action { (x, c) =>
         c.copy(nbUpdateWorkers = x)
-      } text ("The number of update workers per concurrent coordinator to spawn to process attribute updates asynchronously.")
-
-      opt[Int]("nb-coordinators") required () action { (x, c) =>
-        c.copy(nbCoordinators = x)
-      } text ("The number of concurrent coordinators to spawn.")
+      } text ("The number of update workers to spawn to process attribute updates asynchronously.")
 
       opt[String]("database-ip") required () action { (x, c) =>
         c.copy(databaseIP = x)
@@ -61,10 +55,14 @@ object ConcurrentCoordinatorApp {
         c.copy(databasePort = x)
       } text ("The port on which the database containing the attributes is listening.")
 
+      opt[String]("other-coordinator-ip") action { (x, c) =>
+        c.copy(otherCoordinatorIP = x)
+      } text ("The IP address of another coordinator in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
+
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, ConcurrentCoordinatorConfig()) map { config =>
+    parser.parse(args, DistributedCoordinatorConfig()) map { config =>
       // set up the Actor system
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
@@ -85,11 +83,18 @@ object ConcurrentCoordinatorApp {
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
       // set up the database
       val pool = new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+      // set up the coordinator manager
+      val coordinatorManager = new DistributedCoordinatorManager(hazelcast, system)
+      // get the id of our coordinator
+      val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
 
-      // set up the coordinators
-      val coordinatorManager = system.actorOf(Props(classOf[ConcurrentCoordinatorManager], config.nbCoordinators, pool, config.nbUpdateWorkers), "coordinator-manager") 
+      // set up the coordinator
+      val coordinator = system.actorOf(Props(classOf[ConcurrentCoordinator], coordinatorId, pool, config.nbUpdateWorkers, coordinatorManager), "coordinator")
+      
+      // register the coordinator
+      coordinatorManager.register(config.ip,config.port)
 
-      println(s"${config.nbCoordinators} concurrent coordinators up and running at ${config.hostname}:${config.port} with each ${config.nbUpdateWorkers} update workers")
+      println(s"ConcurrentCoordinator #$coordinatorId up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

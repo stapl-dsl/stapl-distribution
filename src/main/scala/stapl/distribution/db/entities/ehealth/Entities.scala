@@ -4,9 +4,11 @@ import org.joda.time.LocalDateTime
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.examples.policies.EhealthPolicy
 import stapl.distribution.db.entities.Entity
+import stapl.distribution.db.entities.SubjectEntity
+import stapl.distribution.db.entities.ResourceEntity
 
 abstract class Person(_id: String,
-  var roles: List[String] = List.empty) extends Entity(_id) {
+  var roles: List[String] = List.empty) extends SubjectEntity(_id) {
 
   override def persist(db: AttributeDatabaseConnection) = {
     db.storeAttribute(id, EhealthPolicy.subject.roles, roles)
@@ -110,7 +112,7 @@ class Nurse(_id: String,
   }    
 }
 
-abstract class Resource(id: String, val _type: String) extends Entity(id) {
+abstract class Resource(id: String, val _type: String) extends ResourceEntity(id) {
     
   override def persist(db: AttributeDatabaseConnection) {
     db.storeAttribute(id, EhealthPolicy.resource.type_, _type)

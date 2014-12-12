@@ -78,9 +78,9 @@ class ClientAuthorizationRequestManager() {
 /**
  * Class used for managing foremen.
  */
-class ForemanManager {
+class ForemanAdministration {
 
-  val foremen = Map.empty[ActorRef, Option[List[PolicyEvaluationRequest]]]
+  val foremen = Map.empty[ActorRef, Option[List[(PolicyEvaluationRequest,ActorRef)]]]
 
   /**
    * Add the given Foreman to the list of Foremen (as idle).
@@ -115,7 +115,7 @@ class ForemanManager {
   /**
    * Set the given foreman as busy on the given work.
    */
-  def foremanStartedWorkingOn(foreman: ActorRef, work: List[PolicyEvaluationRequest]) =
+  def foremanStartedWorkingOn(foreman: ActorRef, work: List[(PolicyEvaluationRequest,ActorRef)]) =
     // FIXME not correct, this should be an append if the foreman already has work
     foremen(foreman) = Some(work)
 
@@ -129,6 +129,8 @@ class ForemanManager {
    */
   def getWork(foreman: ActorRef) = foremen(foreman)
 }
+
+
 
 /**
  * Class used for concurrency control.
@@ -441,13 +443,13 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
   /**
    *  Holds known workers and what they may be working on
    */
-  private val foremen = new ForemanManager
+  private val foremen = new ForemanAdministration
 
   /**
    * Holds the incoming list of work to be done as well
    * as the memory of who asked for it
    */
-  private val workQ = Queue.empty[PolicyEvaluationRequest]
+  private val workQ = Queue.empty[(PolicyEvaluationRequest,ActorRef)]
 
   /**
    * Holds the mapping between the clients and the authorization requests
@@ -514,7 +516,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
     case ForemanRequestsWork(foreman, nbRequests) =>
       log.debug(s"Foreman requests work: $foreman -> $nbRequests requests")
       if (!workQ.isEmpty) {
-        val workBuffer = ListBuffer[PolicyEvaluationRequest]()
+        val workBuffer = ListBuffer[(PolicyEvaluationRequest,ActorRef)]()
         for (i <- List.range(0, nbRequests)) {
           if (!workQ.isEmpty) {
             workBuffer += workQ.dequeue
@@ -570,7 +572,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
       val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
       id2request(id) = original
       val updated = concurrencyController.start(original)
-      workQ.enqueue(updated)
+      workQ.enqueue((updated,self))
       notifyForemen
 
     /**
@@ -593,7 +595,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
         log.warning(s"Conflicting evaluation found, restarting $id")
         val original = id2request(id)
         val updated = concurrencyController.restart(original)
-        workQ.enqueue(updated)
+        workQ.enqueue((updated,self))
       }
 
     /**

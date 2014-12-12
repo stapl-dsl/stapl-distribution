@@ -30,11 +30,80 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
 
   val timer = new Timer
   var counter = 0
-  
+
   val em = EntityManager()
 
   def sendRequest = {
     timer.time {
+      val f = coordinator ? request
+      val decision: Decision = Await.ready(f, 180 seconds).value match {
+        case None =>
+          // should never happen, but just in case...
+          println("WTF: None received from ping???")
+          Deny
+        case Some(result) => result match {
+          case Success(AuthorizationDecision(decision)) =>
+            log.debug(s"Result of policy evaluation was: $decision")
+            decision
+          case Success(x) =>
+            log.warning(s"No idea what I received here: $x => default deny")
+            break
+            Deny
+          case Failure(e: AskTimeoutException) =>
+            log.warning("Timeout => default deny")
+            break
+            Deny
+          case Failure(e) =>
+            log.warning("Some other failure? => default deny anyway")
+            break
+            Deny
+        }
+      }
+    }
+    counter += 1
+    if (counter % 100 == 0) {
+      println(s"Mean latency of the last 100 requests: ${timer.mean}ms")
+      timer.reset
+    }
+  }
+
+  def receive = {
+    case Go(nb) => // launch a test of 100 messages 
+      breakable {
+        if (nb == 0) {
+          // infinte loop
+          while (true) {
+            sendRequest
+          }
+        } else {
+          for (i <- 1 to nb) {
+            sendRequest
+          }
+        }
+      }
+      log.info(s"Client finished: $nb requests in ${timer.total} ms (mean: ${timer.mean} ms)")
+    case msg => log.error(s"Received unknown message: $msg")
+  }
+
+  log.info(s"Sequential client created: $this")
+}
+
+class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup) extends Actor with ActorLogging {
+
+  import ClientProtocol._
+
+  implicit val timeout = Timeout(2.second)
+  implicit val ec = context.dispatcher
+
+  val timer = new Timer
+  var counter = 0
+
+  val em = EntityManager()
+
+  def sendRequest = {
+    timer.time {
+      val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+      val coordinator = coordinators.getCoordinatorFor(request)
       val f = coordinator ? request
       val decision: Decision = Await.ready(f, 180 seconds).value match {
         case None =>
@@ -98,14 +167,47 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with Actor
 
   val timer = new Timer
   var waitingFor = nb
-  
+
   val em = EntityManager()
 
   def receive = {
     case "go" =>
       timer.start
-      for (i <- 0 to nb) {
+      for (i <- 1 to nb) {
         val f = coordinator ! AuthorizationRequest(em.maarten.id, "view", em.maartenStatus.id)
+      }
+    case AuthorizationDecision(decision) =>
+      waitingFor -= 1
+      if (waitingFor == 0) {
+        timer.stop()
+        log.info(s"Total duration of an initial peak of $nb requests = ${timer.duration}")
+      }
+    case x => log.error(s"Received unknown message: $x")
+  }
+
+  log.info(s"Intial peak client created: $this")
+}
+
+class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, nb: Int) extends Actor with ActorLogging {
+
+  import ClientProtocol._
+  import ClientCoordinatorProtocol._
+
+  implicit val timeout = Timeout(2.second)
+  implicit val ec = context.dispatcher
+
+  val timer = new Timer
+  var waitingFor = nb
+
+  val em = EntityManager()
+
+  def receive = {
+    case "go" =>
+      timer.start
+      for (i <- 1 to nb) {
+        val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+        val coordinator = coordinators.getCoordinatorFor(request)
+        coordinator ! request
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1

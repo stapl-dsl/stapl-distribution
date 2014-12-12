@@ -17,7 +17,7 @@ class ForemanManagerTest extends AssertionsForJUnit {
   val probe = TestProbe()
   
   @Test def testIdle {
-    val manager = new ForemanManager
+    val manager = new ForemanAdministration
     manager += probe.ref
     assertEquals(manager.idle, Set(probe.ref))
   }

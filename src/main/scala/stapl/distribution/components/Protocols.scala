@@ -22,12 +22,6 @@ object ClientCoordinatorProtocol {
     extraAttributes: List[(Attribute, ConcreteValue)] = List())
   case class AuthorizationDecision(decision: Decision)
 }
-object ClientConcurrentCoordinatorProtocol {
-  case class AuthorizationRequestAndManageSubject(subjectId: String, actionId: String, resourceId: String,
-    extraAttributes: List[(Attribute, ConcreteValue)] = List())
-  case class AuthorizationRequestAndManageResource(subjectId: String, actionId: String, resourceId: String,
-    extraAttributes: List[(Attribute, ConcreteValue)] = List())
-}
 
 /**
  * For communication between the coordinator and foremen.
@@ -39,6 +33,10 @@ case class ById(id: String) extends PolicyToBeEvaluated
 case class PolicyEvaluationRequest(id: String, policy: PolicyToBeEvaluated, subjectId: String,
   actionId: String, resourceId: String, extraAttributes: List[(Attribute, ConcreteValue)])
 
+object InternalCoordinatorProtocol {
+  case class Enqueue(request: PolicyEvaluationRequest)
+}
+
 object CoordinatorForemanProtocol {
   // Messages from Foremen
   case class ForemanCreated(foreman: ActorRef)
@@ -47,7 +45,7 @@ object CoordinatorForemanProtocol {
   case class PolicyEvaluationResult(id: String, result: Result) // this will actually be sent by a worker
 
   // Messages to Foremen
-  case class WorkToBeDone(work: List[PolicyEvaluationRequest])
+  case class WorkToBeDone(work: List[(PolicyEvaluationRequest, ActorRef)])
   case object WorkIsReady
 }
 
@@ -74,7 +72,18 @@ object ForemanWorkerProtocol {
   case class WorkerIsDoneAndRequestsWork(worker: ActorRef)
 
   // Messages to workers
-  case class WorkToBeDone(work: PolicyEvaluationRequest)
+  case class WorkToBeDone(work: PolicyEvaluationRequest, coordinator: ActorRef)
   case object WorkIsReady
   case object NoWorkToBeDone
+}
+
+/**
+ * For communication with ConcurrentActorManagers
+ */
+object ConcurrentActorManagerProtocol {
+  case class GetCoordinators
+  // Note: it is very important that the order of the Coordinators is maintained
+  // because this order leads to the distribution of requests and this distribution
+  // should be the same on every node.
+  case class Coordinators(coordinators: Seq[ActorRef])
 }

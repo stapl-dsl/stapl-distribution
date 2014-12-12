@@ -25,7 +25,7 @@ import stapl.distribution.db.AttributeDatabaseConnection
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request of a Foreman.
  */
-class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
+class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
 
   // TODO use attribute cache here if necessary
   val finder = new AttributeFinder
@@ -43,7 +43,7 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
   def working(work: Any): Receive = {
     case WorkIsReady => // Pass... we're already working
     case NoWorkToBeDone => // Pass... we're already working
-    case WorkToBeDone(_) => // Pass... we shouldn't even get this 
+    case WorkToBeDone(_,_) => // Pass... we shouldn't even get this 
       log.error("Yikes. Master told me to do work, while I'm working.")
     case x => log.error(s"Unknown message received: $x")
   }
@@ -57,10 +57,10 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
     case WorkIsReady => // Coordinator says there's work to be done, let's ask for it
       log.debug("Requesting work")
       foreman ! WorkerRequestsWork(self)
-    case WorkToBeDone(request: PolicyEvaluationRequest) => // Send the work off to the implementation
-      log.debug(s"Got work: $request")
-      context.become(working(request))
-      processRequest(request)
+    case WorkToBeDone(request, coordinator) => // Send the work off to the implementation
+      log.debug(s"Got work: $request from $coordinator")
+      context.become(working((request,coordinator)))
+      processRequest(request,coordinator)
     case NoWorkToBeDone => // We asked for work, but either someone else got it first, or
     // there's literally no work to be done
     case x => log.error(s"Unknown message received: $x")
@@ -71,7 +71,7 @@ class Worker(coordinator: ActorRef, foreman: ActorRef, policy: AbstractPolicy, c
   /**
    *
    */
-  private def processRequest(request: PolicyEvaluationRequest): Unit = {
+  private def processRequest(request: PolicyEvaluationRequest, coordinator: ActorRef): Unit = {
     // TODO implement evaluating the policy asked for by the request
     val result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
     // pass the decision directly to the coordinator...
