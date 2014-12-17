@@ -34,7 +34,7 @@ case class PolicyEvaluationRequest(id: String, policy: PolicyToBeEvaluated, subj
   actionId: String, resourceId: String, extraAttributes: List[(Attribute, ConcreteValue)])
 
 object InternalCoordinatorProtocol {
-  case class Enqueue(request: PolicyEvaluationRequest)
+  case class Enqueue(request: PolicyEvaluationRequest, theResultShouldGoTo: ActorRef)
 }
 
 object CoordinatorForemanProtocol {
@@ -53,14 +53,10 @@ object CoordinatorForemanProtocol {
  * For communication between concurrent coordinators.
  */
 object ConcurrentCoordinatorProtocol {
-  case class StartRequestAndManageSubject(sendingCoordinator: ActorRef, client: ActorRef,
-    original: PolicyEvaluationRequest, withAppropriateAttributes: PolicyEvaluationRequest)
-  case class StartRequestAndManageResource(sendingCoordinator: ActorRef, client: ActorRef,
-    original: PolicyEvaluationRequest, withAppropriateAttributes: PolicyEvaluationRequest)
-  case class RestartRequestAndManageSubject(sendingCoordinator: ActorRef, client: ActorRef,
-    original: PolicyEvaluationRequest, withAppropriateAttributes: PolicyEvaluationRequest)
-  case class RestartRequestAndManageResource(sendingCoordinator: ActorRef, client: ActorRef,
-    original: PolicyEvaluationRequest, withAppropriateAttributes: PolicyEvaluationRequest)
+  case class StartRequestAndManageResource(originalRequestWithAppropriateAttributesAdded: PolicyEvaluationRequest)
+  case class TryCommitForResource(result: CoordinatorForemanProtocol.PolicyEvaluationResult)
+  case class CommitForResourceFailed(result: CoordinatorForemanProtocol.PolicyEvaluationResult)
+  case class CommitForResourceSucceeded(result: CoordinatorForemanProtocol.PolicyEvaluationResult)
 }
 
 /**

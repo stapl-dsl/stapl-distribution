@@ -67,29 +67,21 @@ trait CoordinatorLocater {
     val hash = Math.abs(key.hashCode())
     coordinators(hash % coordinators.size)
   }
-}
-
-/**
- *
- */
-trait RandomCoordinatorGroup extends CoordinatorGroup with CoordinatorLocater with Logging {
 
   /**
-   * Sends the given request to the coordinator responsible for managing
-   * either the subject or resource of this request. The final coordinator
-   * is chosen at random in order to divide the requests approximately evenly.
+   * Returns what the given coordinator should manage for the given request.
    */
-  override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
-    import ClientCoordinatorProtocol.AuthorizationRequest
-    Random.nextBoolean match {
-      case true =>
-        val result = getCoordinatorForSubject(request.subjectId)
-        debug(s"Chose to send $request to the SUBJECT coordinator ($result)")
-        result
-      case false =>
-        val result = getCoordinatorForResource(request.resourceId)
-        debug(s"Chose to send $request to the RESOURCE coordinator ($result)")
-        result
+  def whatShouldIManage(coordinator: ActorRef, request: PolicyEvaluationRequest): Managed = {
+    val coordinatorForSubject = getCoordinatorForSubject(request.subjectId)
+    val coordinatorForResource = getCoordinatorForResource(request.resourceId)
+    if (coordinatorForSubject == coordinator && coordinatorForResource == coordinator) {
+      BOTH
+    } else if (coordinatorForSubject == coordinator) {
+      SUBJECT
+    } else if (coordinatorForResource == coordinator) {
+      RESOURCE
+    } else {
+      NOTHING
     }
   }
 }
@@ -120,7 +112,7 @@ class ConcurrentCoordinatorManager(nbCoordinators: Int, pool: AttributeDatabaseC
 
   // set up our foreman manager
   val foremanManager = context.actorOf(Props(classOf[ForemanManager]), "foreman-manager")
-  
+
   // set up our coordinators
   private val coordinatorLocator = new ConcurrentCoordinatorLocator
   for (i <- 1 to nbCoordinators) {
@@ -152,7 +144,7 @@ class ConcurrentCoordinatorManager(nbCoordinators: Int, pool: AttributeDatabaseC
  * coordinators on that node (randomly selected).
  */
 class RemoteConcurrentCoordinatorGroup(actorSystem: ActorSystem, ip: String, port: Int)
-  extends RandomCoordinatorGroup with Logging {
+  extends CoordinatorGroup with CoordinatorLocater with Logging {
 
   override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
 
@@ -169,6 +161,14 @@ class RemoteConcurrentCoordinatorGroup(actorSystem: ActorSystem, ip: String, por
       debug(s"Found coordinator manager at $ip:$port with ${cs.size} coordinators")
     case x =>
       error(s"Unknown message received: $x")
+  }
+
+  /**
+   * Sends the given request to the coordinator responsible for managing
+   * the subject of this request.
+   */
+  override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
+    getCoordinatorForSubject(request.subjectId)
   }
 }
 

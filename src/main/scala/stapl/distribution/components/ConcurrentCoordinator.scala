@@ -21,8 +21,6 @@ import scala.collection.mutable.Set
 import scala.collection.mutable.MultiMap
 import scala.collection.mutable.HashMap
 import stapl.core.ConcreteValue
-import stapl.core.SUBJECT
-import stapl.core.RESOURCE
 import akka.event.LoggingAdapter
 import stapl.distribution.db.HazelcastAttributeDatabaseConnection
 import com.hazelcast.config.Config
@@ -40,10 +38,12 @@ import com.hazelcast.core.ItemEvent
 import stapl.core.pdp.SimpleTimestampGenerator
 import scala.util.Random
 import scala.concurrent.duration._
-import scala.util.{ Success, Failure }
+import scala.util.{ Try, Success, Failure }
+import stapl.core.ConcreteChangeAttributeObligationAction
+import stapl.core.ConcreteObligationAction
 
 /**
- * Class used for communication with foremen. 
+ * Class used for communication with foremen.
  */
 class ForemanManager extends Actor with ActorLogging {
 
@@ -79,8 +79,8 @@ class ForemanManager extends Actor with ActorLogging {
     /**
      * A coordinator sends us work to forward to the Foremen.
      */
-    case Enqueue(request) =>
-      workQ.enqueue((request, sender))
+    case Enqueue(request, theResultShouldGoTo) =>
+      workQ.enqueue((request, theResultShouldGoTo))
       notifyForemen
 
     /**
@@ -151,6 +151,16 @@ class ForemanManager extends Actor with ActorLogging {
 }
 
 /**
+ * Enum for storing what entities we manage: the SUBJECT, the RESOURCE
+ * or BOTH.
+ */
+sealed trait Managed extends Exception // extends Exception so that we can return it in Failure
+case object SUBJECT extends Managed
+case object RESOURCE extends Managed
+case object BOTH extends Managed
+case object NOTHING extends Managed
+
+/**
  * Class used for concurrency control.
  *
  * Strategy: for each ongoing request we maintain the relevant attributes
@@ -181,15 +191,17 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   private val resourceId2Evaluation = new HashMap[String, Set[PolicyEvaluationRequest]] with MultiMap[String, PolicyEvaluationRequest]
 
   /**
-   * A multimap that stores what we manage for a certain request: the subject,
+   * A map that stores what we manage for a certain request: the subject,
    * the resource or both.
    *
    * This is only needed for restarting the request.
    */
-  val weManage = new HashMap[String, Set[AttributeContainerType]] with MultiMap[String, AttributeContainerType]
+  val weManage = new HashMap[String, Managed]
 
   /**
    * The lists of attributes that have been updated during a certain policy evaluation.
+   *
+   * TODO probably, the best idea for the tentative updates is to store a state here: FINAL or TENTATIVE?
    */
   private val updatesWhileEvaluating = Map[String, ListBuffer[Attribute]]()
 
@@ -211,18 +223,40 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   /**
    * Indicates to the controller that the evaluation of the given
    * request is going to start and that this controller should do
+   * the administration for the SUBJECT and the RESOURCE of the request.
+   *
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to the committed in the database yet.
+   */
+  def startForBoth(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
+    // set up the administration
+    ongoingEvaluations(request.id) = request
+    subjectId2Evaluation.addBinding(request.subjectId, request)
+    resourceId2Evaluation.addBinding(request.resourceId, request)
+    weManage(request.id) = BOTH
+    updatesWhileEvaluating(request.id) = ListBuffer()
+
+    // add suitable attributes of ongoing attribute updates
+    addSuitableAttributes(request)
+  }
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to start and that this controller should do
    * the administration for the subject of the request.
    *
    * This method adds the original request with the appropriate
    * attributes added. These attributes are attributes that are
    * currently being updated as the result of previous policy evaluations
-   * but are not sure to bhe committed in the database yet.
+   * but are not sure to the committed in the database yet.
    */
   def startForSubject(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // set up the administration
     ongoingEvaluations(request.id) = request
     subjectId2Evaluation.addBinding(request.subjectId, request)
-    weManage.addBinding(request.id, SUBJECT)
+    weManage(request.id) = SUBJECT
     updatesWhileEvaluating(request.id) = ListBuffer()
 
     // add suitable attributes of ongoing attribute updates
@@ -243,28 +277,10 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // set up the administration
     ongoingEvaluations(request.id) = request
     resourceId2Evaluation.addBinding(request.resourceId, request)
-    weManage.addBinding(request.id, RESOURCE)
+    weManage(request.id) = RESOURCE
     updatesWhileEvaluating(request.id) = ListBuffer()
 
     // add suitable attributes of ongoing attribute updates
-    addSuitableAttributes(request)
-  }
-
-  /**
-   * Indicates to the controller that the evaluation of the given request
-   * is going to restart. This resets the list of updates while evaluating
-   * the request and returns the given request with the appropriate
-   * attributes added (see start()).
-   *
-   * Note: if we manage both the subject and the resource of this request,
-   * this method will have added the necessary attributes for both.
-   */
-  def restart(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
-    // reset the administration
-    updatesWhileEvaluating(request.id) = ListBuffer()
-    // add suitable attributes of ongoing attribute updates
-    // Note: if we manage both the subject and the resource of this request,
-    // 		 this method will have added the necessary attributes for both
     addSuitableAttributes(request)
   }
 
@@ -277,37 +293,186 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // Note: subjectId2OngoingUpdates will only contain this request if
     // we should also manage this request => this method can be used from
     // both the subject-specific and resource-specific methods.
+    // Note: there will never be tentative updates for resource attributes
     if (subjectId2OngoingUpdates.contains(request.subjectId)) {
       val toAdd = subjectId2OngoingUpdates(request.subjectId).toSeq
       attributes ++= toAdd
-      log.debug(s"Added the following attributes because of ongoing updates on the SUBJECT: $toAdd")
+      log.debug(s"Added the following ongoing attributes because of ongoing updates on the SUBJECT: $toAdd")
     }
     if (resourceId2OngoingUpdates.contains(request.resourceId)) {
       val toAdd = resourceId2OngoingUpdates(request.resourceId).toSeq
       attributes ++= toAdd
-      log.debug(s"Added the following attributes because of ongoing updates on the RESOURCE: $toAdd")
+      log.debug(s"Added the following ongoing attributes because of ongoing updates on the RESOURCE: $toAdd")
     }
     PolicyEvaluationRequest(request.id, request.policy, request.subjectId, request.actionId, request.resourceId, attributes)
   }
 
   /**
+   * Called by a coordinator that manages BOTH the resource and the subject.
+   *
    * Tries to commit the evaluation of which the result is given and
    * returns whether the commit has succeeded or not. This commit will
    * succeed if there are no conflicting attribute reads and/or writes.
+   *
+   * This method also updates the internal state according to the success
+   * or failure of the commit (in the latter case: remove the evaluation from
+   * the administration).
+   *
    * If this method returns true, the attribute updates of the evaluation
    * are not yet processed but *will* be processed and will be processed
    * *correctly* so that you can assume that the evaluation is committed.
    */
-  def commit(result: PolicyEvaluationResult): Boolean = {
-
-    // TODO HIER MOET NOG VEEL AAN VERANDEREN
-    // - commit enkel de updates van de entiteit die wij wel degelijk managen!
-    // - check of we enkel het subject of de resource van het request managen
-    //		of beide. If beide: doe de hele commit nu. If slechts eens: overleg
-    // 		met de andere coordinator
-
+  def commitForBoth(result: PolicyEvaluationResult): Boolean = {
     val id = result.id
-    // 1. check if we *can* commit: check for read-write conflicts
+    // check that we *can* commit: check for read-write conflicts
+    if (!canCommit(result)) {
+      // Nope => return false
+      cleanUp(id)
+      return false
+    } else {
+      // we can commit => execute the obligations and update the concurrency control administration
+      val request = ongoingEvaluations(id)
+      result.result.obligationActions foreach {
+        _ match {
+          case change: ConcreteChangeAttributeObligationAction =>
+            execute(change)
+            // also store the updates for ongoing evaluations with which
+            // these can conflict. We should only store these for evaluations
+            // that share the entityId
+            subjectId2Evaluation(request.subjectId) foreach { x =>
+              updatesWhileEvaluating(x.id) += change.attribute
+              log.debug(s"Stored the possibly conflicting attribute update for the SUJBECT with evaluation ${x.id}")
+            }
+            resourceId2Evaluation(request.resourceId) foreach { x =>
+              updatesWhileEvaluating(x.id) += change.attribute
+              log.debug(s"Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
+            }
+          case x => throw new IllegalArgumentException(s"For now, we can only process attribute changes. Given ObligationAction: $x")
+        }
+      }
+      // remove the evaluation from the administration
+      cleanUp(id)
+      // return
+      true
+    }
+  }
+
+  /**
+   * Called by a coordinator that manages only the SUBJECT. The attribute
+   * updates in this result should be executed TENTATIVELY.
+   */
+  def commitForSubject(result: PolicyEvaluationResult): Boolean = {
+    val id = result.id
+    if (!canCommit(result)) {
+      cleanUp(id)
+      return false
+    } else {
+      // execute tentative updates for subject attributes
+      val request = ongoingEvaluations(id)
+      result.result.obligationActions foreach {
+        _ match {
+          case change: ConcreteChangeAttributeObligationAction =>
+            // also store the updates for ongoing evaluations with which
+            // these can conflict. We should only store these for the RESOURCE
+            change.attribute.cType match {
+              case stapl.core.SUBJECT =>
+                resourceId2Evaluation(request.resourceId) foreach { x =>
+                  // updatesWhileEvaluating(x.id) += change.attribute
+                  // TODO store the attribute update tentatively here
+                  log.debug(s"Stored the possibly conflicting attribute update TENTATIVELY for the RESOURCE with evaluation ${x.id}")
+                }
+              case stapl.core.RESOURCE =>
+              // Nothing to do, this attribute will be handled by the other coordinator
+              case x => throw new IllegalArgumentException(s"For now, you can only update subject and resource attributes. Given container type: $x")
+            }
+          case x => throw new IllegalArgumentException(s"For now, we can only process attribute changes. Given ObligationAction: $x")
+        }
+      }
+      true
+    }
+  }
+
+  /**
+   * Called by a coordinator that manages only the RESOURCE. The attribute
+   * updates in this result can be executed IMMEDIATELY.
+   */
+  def commitForResource(result: PolicyEvaluationResult): Boolean = {
+    val id = result.id
+    if (!canCommit(result)) {
+      cleanUp(id)
+      return false
+    } else {
+      // the other coordinator has tentatively committed the attribute updates
+      // of the subject, we can immediately commit the attribute updates of the resource
+      // => execute the obligations and update the concurrency control administration
+      val request = ongoingEvaluations(id)
+      result.result.obligationActions foreach {
+        _ match {
+          case change: ConcreteChangeAttributeObligationAction =>
+            // also store the updates for ongoing evaluations with which
+            // these can conflict. We should only store these for the RESOURCE
+            change.attribute.cType match {
+              case stapl.core.SUBJECT =>
+              // Nothing to do, this attribute was handled by the other coordinator
+              case stapl.core.RESOURCE =>
+                execute(change)
+                resourceId2Evaluation(request.resourceId) foreach { x =>
+                  updatesWhileEvaluating(x.id) += change.attribute
+                  log.debug(s"Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
+                }
+              case x => throw new IllegalArgumentException(s"For now, you can only update subject and resource attributes. Given container type: $x")
+            }
+          case x => throw new IllegalArgumentException(s"For now, we can only process attribute changes. Given ObligationAction: $x")
+        }
+      }
+      // remove the evaluation from the administration
+      cleanUp(id)
+      // return
+      true
+    }
+  }
+
+  /**
+   * This method is called by the coordinator managing the SUBJECT
+   * when the other coordinator has indicated that it is ok to commit.
+   */
+  def finalizeCommitForSubject(requestId: String) {
+    // TODO finalize tentative updates
+  }
+
+  /**
+   * This method is called by the coordinator managing the SUBJECT
+   * when the other coordinator has indicated that he failed to commit for the
+   * resource, so we should restart the evaluation. This method resets the
+   * list of updates while evaluating the request and returns the given request
+   * with the appropriate attributes added (see startFor...()).
+   */
+  def restartForSubject(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
+    // reset the administration
+    updatesWhileEvaluating(request.id) = ListBuffer()
+    // add suitable attributes of ongoing attribute updates
+    // Note: if we manage both the subject and the resource of this request,
+    // 		 this method will have added the necessary attributes for both
+    addSuitableAttributes(request)
+  }
+
+  /**
+   * Helper function to check whether we can commit a certain result.
+   *
+   * Note: this method can be called from methods for BOTH, for the SUBJECT
+   * and for the RESOURCE because this method takes into account our overall
+   * administration and this administration will not contain data about the
+   * subject/resource if we do not manage it.
+   *
+   * Note: this also means that this method should be called for BOTH if
+   * we manage both the resource and the subject!
+   */
+  private def canCommit(result: PolicyEvaluationResult): Boolean = {
+    val id = result.id
+    // 1. check whether this policy evaluation should be restarted 
+    //		because of failed tentative updates
+    // TODO    
+    // 2. check if we *can* commit: check for read-write conflicts
     val possibleConflicts = updatesWhileEvaluating(id)
     result.result.employedAttributes foreach {
       case (attribute, value) =>
@@ -319,34 +484,18 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
           return false
         }
     }
-    // 2. we can commit => execute the obligations and update the concurrency
-    //						control administration
+    true
+  }
+
+  /**
+   * Helper method to clean up all administration for a certain evaluation.
+   */
+  private def cleanUp(id: String) {
     val request = ongoingEvaluations(id)
-    result.result.obligationActions foreach {
-      _ match {
-        case change: ConcreteChangeAttributeObligationAction =>
-          execute(change)
-          // also store the updates for ongoing evaluations with which
-          // these can conflict. We should only store these for evaluations
-          // that share the entityId
-          subjectId2Evaluation(request.subjectId) foreach { x =>
-            updatesWhileEvaluating(x.id) += change.attribute
-            log.debug(s"Stored the possibly conflicting attribute update for the SUJBECT with evaluation ${x.id}")
-          }
-          resourceId2Evaluation(request.resourceId) foreach { x =>
-            updatesWhileEvaluating(x.id) += change.attribute
-            log.debug(s"Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
-          }
-        case x => log.error(s"For now, we can only process attribute changes. Ignored the given ObligationAction: $x")
-      }
-    }
-    // remove the evaluation from the administration
     subjectId2Evaluation.removeBinding(request.subjectId, request)
     resourceId2Evaluation.removeBinding(request.resourceId, request)
     ongoingEvaluations.remove(id)
     updatesWhileEvaluating.remove(id)
-    // return
-    true
   }
 
   /**
@@ -365,8 +514,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // the previous update guarantees serial execution and that the second
     // update will be the final one
     val target = update.attribute.cType match {
-      case SUBJECT => subjectId2OngoingUpdates
-      case RESOURCE => resourceId2OngoingUpdates
+      case stapl.core.SUBJECT => subjectId2OngoingUpdates
+      case stapl.core.RESOURCE => resourceId2OngoingUpdates
       case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given attribute: $x")
     }
     if (target.contains(update.entityId)) {
@@ -417,8 +566,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // also remove the ongoing update from the list of ongoing updates
     // per attribute IF this has not been overwritten in the meanwhile
     val target = finishedUpdate.attribute.cType match {
-      case SUBJECT => subjectId2OngoingUpdates
-      case RESOURCE => resourceId2OngoingUpdates
+      case stapl.core.SUBJECT => subjectId2OngoingUpdates
+      case stapl.core.RESOURCE => resourceId2OngoingUpdates
       // no need to check the other cases, this has been checked when adding
       // to ongoingUpdates
     }
@@ -438,7 +587,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
  * Class used for representing the Coordinator that manages all foremen
  * and ensures correct concurrency.
  *
- * TODO: the work mgmt is not correct yet: the list of requests assigned
+ * FIXME: the work mgmt is not correct yet: the list of requests assigned
  * to a foremen is not extended with newly assigned work and is also not cleared
  * if the foreman has finished certain jobs except if he sends a "Finished" message
  * (so not in the "give me more" message)
@@ -479,119 +628,213 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
   private val concurrencyController = new ConcurrentConcurrencyController(self, updateWorkers.toList, log)
 
   /**
-   * A mapping of id->request for restarting requests efficiently.
+   * A mapping of id -> original request for restarting requests efficiently.
    */
-  private val id2request = scala.collection.mutable.Map[String, PolicyEvaluationRequest]()
+  private val id2original = scala.collection.mutable.Map[String, PolicyEvaluationRequest]()
 
   def receive = {
 
     /**
+     * For a coordinator managing (at least) the SUBJECT.
+     *
      * A clients sends an authorization request.
      */
     case AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) =>
       val client = sender
       // this is a request from a client => construct an id
       val id = constructNextId()
+      // store the client to forward the result later on
+      clients(id) = client
       // construct the internal request
       val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
-      // determine what we should manage
-      if (coordinatorManager.getCoordinatorForSubject(subjectId) == self) {
-
-        log.debug(s"Queueing ($subjectId, $actionId, $resourceId) from $client (I should manage the subject)")
-        val updated = concurrencyController.startForSubject(original)
-        coordinatorManager.getCoordinatorForResource(resourceId) ! StartRequestAndManageResource(self, client, original, updated)
-
-      } else if (coordinatorManager.getCoordinatorForResource(resourceId) == self) {
-
-        log.debug(s"Queueing ($subjectId, $actionId, $resourceId) from $client (I should manage the resource)")
-        val updated = concurrencyController.startForResource(original)
-        coordinatorManager.getCoordinatorForSubject(subjectId) ! StartRequestAndManageSubject(self, client, original, updated)
-
-      } else {
-
-        // we could forward here. For now: log an error
-        log.error(s"Request received for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
-
+      // store the original
+      id2original(id) = original
+      // In case of intelligent clients, we should only have received this request
+      // if we should manage the subject of the request. In case of unintelligent 
+      // clients, we could forward the request to the appropriate coordinator.
+      coordinatorManager.whatShouldIManage(self, original) match {
+        case BOTH =>
+          log.debug(s"Queueing ($subjectId, $actionId, $resourceId) from $client (I should manage both)")
+          // add the attributes according to our administration
+          val updated = concurrencyController.startForBoth(original)
+          // forward the updated request to our foreman manager 
+          foremanManager ! Enqueue(updated, self)
+        case SUBJECT =>
+          log.debug(s"Received ($subjectId, $actionId, $resourceId) from $client (I should manage the subject)")
+          val updated = concurrencyController.startForSubject(original)
+          // ask the other coordinator to start the actual evaluation 
+          // (the result will be sent directly to us)
+          coordinatorManager.getCoordinatorForResource(resourceId) ! StartRequestAndManageResource(updated)
+        case _ =>
+          // we could forward here. For now: log an error
+          log.error(s"Request received for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
       }
 
     /**
-     * Another coordinator sends a request for us to manage the subject and evaluate
-     * the given request.
-     */
-    case StartRequestAndManageSubject(sendingCoordinator, client, original, updated) =>
-      // log
-      log.debug(s"Queueing $updated from $client via $sendingCoordinator (I should manage the subject)")
-      // store the client to forward the result later on
-      clients(original.id) = client
-      // add the attributes according to our own administration
-      val updatedAgain = concurrencyController.startForSubject(updated)
-      // store the original
-      id2request(original.id) = original
-      // forward the updated request to our foreman manager 
-      foremanManager ! Enqueue(updatedAgain)
-
-    /**
+     * For a coordinator managing the SUBJECT.
+     *
      * Another coordinator sends a request for us to manage the resource and evaluate
      * the given request.
      */
-    case StartRequestAndManageResource(sendingCoordinator, client, original, updated) =>
+    case StartRequestAndManageResource(updatedRequest) =>
       // log
-      log.debug(s"Queueing $updated from $client via $sendingCoordinator (I should manage the resource)")
-      // store the client to forward the result later on
-      clients(original.id) = client
+      log.debug(s"Queueing $updatedRequest via $sender (I should manage the resource)")
       // add the attributes according to our own administration
-      val updatedAgain = concurrencyController.startForResource(updated)
-      // store the original
-      id2request(original.id) = original
-      // forward the updated request to our foreman manager 
-      foremanManager ! Enqueue(updatedAgain)
+      val updatedAgain = concurrencyController.startForResource(updatedRequest)
+      // forward the updated request to our foreman manager
+      // note: the result should be sent to the other coordinator (i.e., the sender
+      // of this StartRequestAndManageResource request)
+      foremanManager ! Enqueue(updatedAgain, sender)
 
     /**
+     * For a coordinator managing the SUBJECT.
      *
+     * A worker has sent us the result of the policy evaluation => try to commit it.
      */
     case result: PolicyEvaluationResult =>
       val id = result.id
-      log.debug(s"Received authorization decision: ($id, $result)")
-      if (concurrencyController.commit(result)) {
-        log.debug(s"The commit for request $id succeeded")
-        // the commit succeeded => remove the request from our administration and 
-        // return the result to the client
-        id2request.remove(id)
-        val client = clients(id)
-        client ! ClientCoordinatorProtocol.AuthorizationDecision(result.result.decision)
-        stats.tick
-      } else {
-        log.warning(s"Conflicting evaluation found, restarting $id")
-        // the commit failed => restart the evaluation by resetting our administration,
-        // adding the appropriate attributes to the original and sending this to the 
-        // appropriate coordinator
-        val original = id2request(id)
-        val updated = concurrencyController.restart(original)
-        val weManage = concurrencyController.weManage(id)
-        if (weManage.size == 2) {
-          // We can start this evaluation right now! 
-          // => do not clean up any administration   
-          foremanManager ! Enqueue(updated)
-        } else if (weManage.contains(SUBJECT)) {
-          val client = clients(original.id)
-          // clean up the administration
-          clients.remove(original.id)
-          id2request.remove(original.id)
-          // send the request to the other coordinator
-          coordinatorManager.getCoordinatorForResource(original.resourceId) ! RestartRequestAndManageResource(self, client, original, updated)
-        } else {
-          // weManage.contains(RESOURCE)
-          val client = clients(original.id)
-          // clean up the administration
-          clients.remove(original.id)
-          id2request.remove(original.id)
-          // send the request to the other coordinator
-          coordinatorManager.getCoordinatorForSubject(original.subjectId) ! RestartRequestAndManageSubject(self, client, original, updated)
-        }
+      val original = id2original(id)
+      log.debug(s"Received authorization decision: ($id, $result) Trying to commit.")
+      // check what we manage: SUBJECT or RESOURCE
+      // Note: we have to take into account the special case in which we manage 
+      //			both the SUBJECT and the RESOURCE in order to be able to remove 
+      //			the state if we can commit (i.e., removing the state in case that
+      //			we manage both the subject and the resource would lead to errors if we
+      //			then send a message to ourselves to commit for the subject/resource
+      //			after having committed for the resource/subject).
+      coordinatorManager.whatShouldIManage(self, original) match {
+        case BOTH =>
+          // try to commit for both the subject and the resource
+          if (concurrencyController.commitForBoth(result)) {
+            log.debug(s"The commit for request $id succeeded for BOTH")
+            // the commit succeeded => remove the request from our administration and 
+            // return the result to the client
+            id2original.remove(id)
+            val client = clients(id)
+            client ! AuthorizationDecision(result.result.decision)
+            stats.tick
+          } else {
+            log.debug(s"The commit for request $id failed for BOTH")
+            // the commit failed => restart the evaluation (add the necesary
+            // attributes to the original again)
+            log.warning(s"The commit for request $id failed for BOTH, restarting it")
+            val original = id2original(id)
+            val updated = concurrencyController.startForBoth(original)
+            foremanManager ! Enqueue(updated, self)
+          }
+        case SUBJECT =>
+          // try to commit for both the subject
+          if (concurrencyController.commitForSubject(result)) {
+            log.debug(s"The commit for request $id succeeded for the SUBJECT")
+            // only forward the resource attribute updates, we have already processed the rest
+            def isResourceChangeAttributeObligationAction(x: ConcreteObligationAction): Boolean = {
+              x match {
+                case change: ConcreteChangeAttributeObligationAction =>
+                  change.attribute.cType match {
+                    case stapl.core.RESOURCE => true
+                    case _ => false
+                  }
+                case _ => false
+              }
+            }
+            val filtered = result.result.obligationActions filter( isResourceChangeAttributeObligationAction(_) )
+            val filteredResult = PolicyEvaluationResult(result.id, result.result.copy(obligationActions = filtered))
+            // ...and ask the other coordinator to commit the rest 
+            coordinatorManager.getCoordinatorForResource(original.resourceId) ! TryCommitForResource(result)
+          } else {
+            log.debug(s"The commit for request $id failed for the SUBJECT, restarting it")
+            // the commit failed => restart the evaluation (add the necessary
+            // attributes to the original again)
+            val original = id2original(id)
+            val updated = concurrencyController.startForSubject(original)
+            // ask the other coordinator to restart as well. This coordinator will 
+            // start the actual evaluation (but the result will be sent to us)
+            coordinatorManager.getCoordinatorForResource(original.resourceId) ! StartRequestAndManageResource(updated)
+          }
+        case x =>
+          // this should never happen
+          throw new RuntimeException(s"I don't know what to do with this. Original = $original. I should manage: $x")
       }
 
     /**
+     * For a coordinator managing the RESOURCE.
      *
+     * The other coordinator has received the result of the policy evaluation from the
+     * worker, the commit at his side is successful and he now askes us whether we can
+     * commit the evaluation as well.
+     *
+     * If the commit fails, we remove all state so that the other coordinator can just
+     * restart the evaluation by just sending us the start command again.
+     */
+    case TryCommitForResource(result) =>
+      val id = result.id
+      log.debug(s"Received result to commit evaluation $id for the resource")
+      if (concurrencyController.commitForResource(result)) {
+        log.debug(s"The commit for request $id succeeded for the RESOURCE")
+        // Note: there are no tentative updates to be done here: the other coordinator
+        // saved its updates tentatively, we can process our resource updates immediately
+        // (actually, the concurrency controller will have done that in commitForResource()).
+        // So, we just have to answer to the sender that the commit succeeded.
+        sender ! CommitForResourceSucceeded(result)
+      } else {
+        log.debug(s"The commit for request $id failed for the RESOURCE => cleaning up " +
+          "internal state (we will build it up again when the coordinator askes us to start " +
+          "the evaluation again later on)")
+        // 1. Clean up: we do not have state ourselves for this if we only manage the 
+        // RESOURCE and the concurrency controller will already have cleaned up its state,
+        // so nothing to do for us actually.
+        // 2. Answer to the sender that the commit failed.
+        sender ! CommitForResourceFailed(result)
+      }
+
+    /**
+     * For a coordinator managing the SUBJECT.
+     *
+     * The local commit for the subject succeeded, we then sent a request to commit for
+     * the resource to the other coordinator and apparently, that succeeded as well. So
+     * we can now finalize our tentative attribute updates and return the result to the
+     * client.
+     */
+    case CommitForResourceSucceeded(result) =>
+      val id = result.id
+      log.debug(s"The other coordinator sent that the commit for request $id succeeded for the RESOURCE => wrap up")
+      // 1. remove the request from our administration
+      id2original.remove(id)
+      // 2. finalize tentative attribute updates
+      // TODO
+      // 3. send result to client
+      val client = clients(id)
+      client ! AuthorizationDecision(result.result.decision)
+      stats.tick
+
+    /**
+     * For a coordinator managing the SUBJECT.
+     *
+     * The local commit for the subject succeeded, we then sent a request to commit for
+     * the resource to the other coordinator and apparently, but that failed apparently.
+     * The other coordinator already cleaned up its administration for this evaluation,
+     * we have to do the same (and especially: mark evaluations that used our tentative
+     * attribute updates to be restarted) and restart the evaluation.
+     */
+    case CommitForResourceFailed(result) =>
+      val id = result.id
+      log.debug(s"The other coordinator sent that the commit for request $id succeeded for the RESOURCE => restart")
+      // the commit succeeded   
+      // 1. destroy tentative attribute updates and mark evaluations that used them to be restarted as well
+      // TODO
+      // TODO Notice that you can actually restart the evaluation immediately, but you do
+      //		have to be able to distinguish the result from the former and the latter
+      //		evaluation later on. You can do this based on the value of the employed 
+      //		attributes. 
+      // 2. restart
+      val original = id2original(id)
+      val updated = concurrencyController.restartForSubject(original)
+      // ask the other coordinator to restart as well. This coordinator will 
+      // start the actual evaluation (but the result will be sent to us)
+      coordinatorManager.getCoordinatorForResource(original.resourceId) ! StartRequestAndManageResource(updated)
+
+    /**
+     * An update worker has finished an update.
      */
     case UpdateFinished(updateWorker) =>
       // just forward this message to the concurrency controller (which is 

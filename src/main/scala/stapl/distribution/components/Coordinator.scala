@@ -80,7 +80,7 @@ class ClientAuthorizationRequestManager() {
  */
 class ForemanAdministration {
 
-  val foremen = Map.empty[ActorRef, Option[List[(PolicyEvaluationRequest,ActorRef)]]]
+  val foremen = Map.empty[ActorRef, Option[List[(PolicyEvaluationRequest, ActorRef)]]]
 
   /**
    * Add the given Foreman to the list of Foremen (as idle).
@@ -115,7 +115,7 @@ class ForemanAdministration {
   /**
    * Set the given foreman as busy on the given work.
    */
-  def foremanStartedWorkingOn(foreman: ActorRef, work: List[(PolicyEvaluationRequest,ActorRef)]) =
+  def foremanStartedWorkingOn(foreman: ActorRef, work: List[(PolicyEvaluationRequest, ActorRef)]) =
     // FIXME not correct, this should be an append if the foreman already has work
     foremen(foreman) = Some(work)
 
@@ -129,8 +129,6 @@ class ForemanAdministration {
    */
   def getWork(foreman: ActorRef) = foremen(foreman)
 }
-
-
 
 /**
  * Class used for concurrency control.
@@ -200,12 +198,12 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
     // add suitable attributes of ongoing attribute updates
     addSuitableAttributes(request)
   }
-  
+
   /**
    * Indicates to the controller that the evaluation of the given request
    * is going to restart. This resets the list of updates while evaluating
    * the request and returns the given request with the appropriate
-   * attributes added (see start()). 
+   * attributes added (see start()).
    */
   def restart(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // reset the administration
@@ -213,8 +211,8 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
     // add suitable attributes of ongoing attribute updates
     addSuitableAttributes(request)
   }
-  
-  private def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {    
+
+  private def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     var attributes = request.extraAttributes
     if (subjectId2OngoingUpdates.contains(request.subjectId)) {
       val toAdd = subjectId2OngoingUpdates(request.subjectId).toSeq
@@ -261,13 +259,28 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
           // also store the updates for ongoing evaluations with which
           // these can conflict. We should only store these for evaluations
           // that share the entityId
-          subjectId2Evaluation(request.subjectId) foreach { x =>
-            updatesWhileEvaluating(x.id) += change.attribute
-            log.debug(s"Stored the possibly conflicting attribute update for the SUJBECT with evaluation ${x.id}")
-          }
-          resourceId2Evaluation(request.resourceId) foreach { x =>
-            updatesWhileEvaluating(x.id) += change.attribute
-            log.debug(s"Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
+          // Note: since we only store the conflicting attribute and not the 
+          // entity id, we should only store attribute updates in
+          // updatesWhileEvaluating() that belong to the subject/resource
+          // in question. Otherwise, imaging that you subject1 makes two requests:
+          // one to access resource1 and one to access resource2 and the policy
+          // updates the resource.history attribute. Then this method would store
+          // that "resource.history was changed during evaluation1" and evaluation2
+          // would fail because it read resource.history, while it read this attribute
+          // of *another* resource. 
+          // TODO rethink this over, is this correct?
+          change.attribute.cType match {
+            case stapl.core.SUBJECT =>
+              subjectId2Evaluation(request.subjectId) foreach { x =>
+                updatesWhileEvaluating(x.id) += change.attribute
+                log.debug(s"Stored the possibly conflicting attribute update for the SUJBECT with evaluation ${x.id}")
+              }
+            case stapl.core.RESOURCE =>
+              resourceId2Evaluation(request.resourceId) foreach { x =>
+                updatesWhileEvaluating(x.id) += change.attribute
+                log.debug(s"Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
+              }
+            case x => throw new IllegalArgumentException(s"For now, you can only update subject and resource attributes. Given container type: $x")
           }
         case x => throw new IllegalArgumentException(s"For now, we can only process attribute changes. Given ObligationAction: $x")
       }
@@ -297,8 +310,8 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
     // the previous update guarantees serial execution and that the second
     // update will be the final one
     val target = update.attribute.cType match {
-      case SUBJECT => subjectId2OngoingUpdates
-      case RESOURCE => resourceId2OngoingUpdates
+      case stapl.core.SUBJECT => subjectId2OngoingUpdates
+      case stapl.core.RESOURCE => resourceId2OngoingUpdates
       case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given attribute: $x")
     }
     if (target.contains(update.entityId)) {
@@ -349,8 +362,8 @@ class ConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef]
     // also remove the ongoing update from the list of ongoing updates
     // per attribute IF this has not been overwritten in the meanwhile
     val target = finishedUpdate.attribute.cType match {
-      case SUBJECT => subjectId2OngoingUpdates
-      case RESOURCE => resourceId2OngoingUpdates
+      case stapl.core.SUBJECT => subjectId2OngoingUpdates
+      case stapl.core.RESOURCE => resourceId2OngoingUpdates
       // no need to check the other cases, this has been checked when adding
       // to ongoingUpdates
     }
@@ -449,7 +462,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
    * Holds the incoming list of work to be done as well
    * as the memory of who asked for it
    */
-  private val workQ = Queue.empty[(PolicyEvaluationRequest,ActorRef)]
+  private val workQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
 
   /**
    * Holds the mapping between the clients and the authorization requests
@@ -516,7 +529,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
     case ForemanRequestsWork(foreman, nbRequests) =>
       log.debug(s"Foreman requests work: $foreman -> $nbRequests requests")
       if (!workQ.isEmpty) {
-        val workBuffer = ListBuffer[(PolicyEvaluationRequest,ActorRef)]()
+        val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
         for (i <- List.range(0, nbRequests)) {
           if (!workQ.isEmpty) {
             workBuffer += workQ.dequeue
@@ -572,7 +585,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
       val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
       id2request(id) = original
       val updated = concurrencyController.start(original)
-      workQ.enqueue((updated,self))
+      workQ.enqueue((updated, self))
       notifyForemen
 
     /**
@@ -595,7 +608,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
         log.warning(s"Conflicting evaluation found, restarting $id")
         val original = id2request(id)
         val updated = concurrencyController.restart(original)
-        workQ.enqueue((updated,self))
+        workQ.enqueue((updated, self))
       }
 
     /**
