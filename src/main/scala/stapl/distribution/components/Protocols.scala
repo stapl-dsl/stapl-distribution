@@ -53,7 +53,8 @@ object CoordinatorForemanProtocol {
  * For communication between concurrent coordinators.
  */
 object ConcurrentCoordinatorProtocol {
-  case class StartRequestAndManageResource(originalRequestWithAppropriateAttributesAdded: PolicyEvaluationRequest)
+  case class ManageResourceAndStartEvaluation(originalRequestWithAppropriateAttributesAdded: PolicyEvaluationRequest)
+  case class ManageResourceAndRestartEvaluation(originalRequestWithAppropriateAttributesAdded: PolicyEvaluationRequest)
   case class TryCommitForResource(result: CoordinatorForemanProtocol.PolicyEvaluationResult)
   case class CommitForResourceFailed(result: CoordinatorForemanProtocol.PolicyEvaluationResult)
   case class CommitForResourceSucceeded(result: CoordinatorForemanProtocol.PolicyEvaluationResult)

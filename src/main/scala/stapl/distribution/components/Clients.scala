@@ -20,6 +20,8 @@ import akka.pattern.ask
 import util.control.Breaks._
 import stapl.distribution.db.entities.ehealth.EntityManager
 import stapl.distribution.components.ClientCoordinatorProtocol._
+import stapl.distribution.util.EvaluationEnded
+import stapl.distribution.util.EvaluationEnded
 
 class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
@@ -88,7 +90,7 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
   log.info(s"Sequential client created: $this")
 }
 
-class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup) extends Actor with ActorLogging {
+class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
 
@@ -96,7 +98,6 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   implicit val ec = context.dispatcher
 
   val timer = new Timer
-  var counter = 0
 
   val em = EntityManager()
 
@@ -129,11 +130,8 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
         }
       }
     }
-    counter += 1
-    if (counter % 100 == 0) {
-      println(s"Mean latency of the last 100 requests: ${timer.mean}ms")
-      timer.reset
-    }
+    stats ! EvaluationEnded(timer.mean) // note: we only use the timer for a single value
+    timer.reset
   }
 
   def receive = {
@@ -188,7 +186,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with Actor
   log.info(s"Intial peak client created: $this")
 }
 
-class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, nb: Int) extends Actor with ActorLogging {
+class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, nb: Int, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -211,6 +209,7 @@ class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentC
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
+      stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
       if (waitingFor == 0) {
         timer.stop()
         log.info(s"Total duration of an initial peak of $nb requests = ${timer.duration}")

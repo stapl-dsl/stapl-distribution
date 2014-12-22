@@ -20,6 +20,7 @@ import akka.pattern.ask
 import stapl.distribution.components.SequentialClientForConcurrentCoordinators
 import stapl.distribution.components.RemoteConcurrentCoordinatorGroup
 import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
+import stapl.distribution.util.StatisticsActor
 
 case class SequentialClientForConcurrentCoordinatorsConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
@@ -83,8 +84,8 @@ object SequentialClientForConcurrentCoordinatorsApp {
           import components.ClientProtocol._
           
           val coordinators = new RemoteConcurrentCoordinatorGroup(system, config.coordinatorManagerHostname, config.coordinatorManagerPort)      
-          
-          val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForConcurrentCoordinators], coordinators)), "clients")
+          val stats = system.actorOf(Props(classOf[StatisticsActor],1000,10))
+          val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForConcurrentCoordinators], coordinators, stats)), "clients")
           clients ! Go(config.nbRequests)
           println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to ${coordinators.coordinators.size} coordinators running at ${config.hostname}:${config.port}")
         case Failure(t) =>

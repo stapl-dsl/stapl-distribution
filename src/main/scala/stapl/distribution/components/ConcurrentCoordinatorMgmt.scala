@@ -140,8 +140,8 @@ class ConcurrentCoordinatorManager(nbCoordinators: Int, pool: AttributeDatabaseC
 
 /**
  * A client for a concurrent coordinator group on another node that fetches the concurrent
- * coordinators on that node and sends authorization requests to one of the appropriate
- * coordinators on that node (randomly selected).
+ * coordinators on that node and sends authorization requests to the appropriate
+ * coordinator on that node (this is the coordinator that manages the subject of the request).
  */
 class RemoteConcurrentCoordinatorGroup(actorSystem: ActorSystem, ip: String, port: Int)
   extends CoordinatorGroup with CoordinatorLocater with Logging {

@@ -200,10 +200,12 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
         val (request,coordinator) = internalWorkQ.dequeue
         worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
         workers.setBusy(worker)
+        log.debug(s"[Evaluation ${request.id}] Sent request to worker $worker for evaluation")
       } else if (!externalWorkQ.isEmpty) {
         val (request,coordinator) = externalWorkQ.dequeue
         worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
         workers.setBusy(worker)
+        log.debug(s"[Evaluation ${request.id}] Sent request to worker $worker for evaluation")
       }
 
     /**

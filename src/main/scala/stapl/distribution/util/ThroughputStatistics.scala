@@ -3,9 +3,11 @@ package stapl.distribution.util
 import scala.collection.mutable.Queue
 
 /**
- * Helper class for maintaining a fixed number of interval throughputs.
+ * Helper class for maintaining a fixed number of interval values.
+ * 
+ * maxSize = 0 for infinite
  */
-class Intervals(val maxSize: Int) {
+class Intervals(val maxSize: Int = 0) {
 
   private val intervals = Queue[Double]()
 
@@ -23,7 +25,7 @@ class Intervals(val maxSize: Int) {
 
   def +=(interval: Double) {
     intervals.enqueue(interval)
-    if (count > maxSize) {
+    if (maxSize != 0 && count > maxSize) {
       intervals.dequeue
     }
   }
@@ -32,7 +34,7 @@ class Intervals(val maxSize: Int) {
 /**
  * Class used for keeping and printing throughput statistics.
  */
-class ThroughputStatistics(intervalSize: Int = 1000) {
+class ThroughputStatistics(intervalSize: Int = 1000, enabled: Boolean = true) {
   val totalStart = System.nanoTime()
   var intervalStart = System.nanoTime()
 
@@ -41,9 +43,11 @@ class ThroughputStatistics(intervalSize: Int = 1000) {
   var lastIntervals = new Intervals(10)
 
   def tick() = {
-    totalCounter += 1
-    intervalCounter += 1L
-    printThroughput
+    if (enabled) {
+      totalCounter += 1
+      intervalCounter += 1L
+      printThroughput
+    }
   }
 
   def totalCount = totalCounter

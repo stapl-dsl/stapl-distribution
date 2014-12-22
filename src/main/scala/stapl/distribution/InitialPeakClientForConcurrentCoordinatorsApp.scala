@@ -19,6 +19,7 @@ import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.InitialPeakClientForConcurrentCoordinators
 import stapl.distribution.components.RemoteConcurrentCoordinatorGroup
+import stapl.distribution.util.StatisticsActor
 
 case class InitialPeakClientForConcurrentCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
@@ -59,7 +60,8 @@ object InitialPeakClientForConcurrentCoordinatorsApp {
       val system = ActorSystem("STAPL-client", customConf)
 
       val coordinators = new RemoteConcurrentCoordinatorGroup(system, config.coordinatorManagerHostname, config.coordinatorManagerPort)
-      val client = system.actorOf(Props(classOf[InitialPeakClientForConcurrentCoordinators], coordinators, config.nbRequests), "client")
+      val stats = system.actorOf(Props(classOf[StatisticsActor],1000,10))
+      val client = system.actorOf(Props(classOf[InitialPeakClientForConcurrentCoordinators], coordinators, config.nbRequests, stats), "client")
       client ! "go"
       println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators")
     } getOrElse {

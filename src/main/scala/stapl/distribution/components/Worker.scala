@@ -43,7 +43,7 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
   def working(work: Any): Receive = {
     case WorkIsReady => // Pass... we're already working
     case NoWorkToBeDone => // Pass... we're already working
-    case WorkToBeDone(_,_) => // Pass... we shouldn't even get this 
+    case WorkToBeDone(_, _) => // Pass... we shouldn't even get this 
       log.error("Yikes. Master told me to do work, while I'm working.")
     case x => log.error(s"Unknown message received: $x")
   }
@@ -58,9 +58,9 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
       log.debug("Requesting work")
       foreman ! WorkerRequestsWork(self)
     case WorkToBeDone(request, coordinator) => // Send the work off to the implementation
-      log.debug(s"Got work: $request from $coordinator")
-      context.become(working((request,coordinator)))
-      processRequest(request,coordinator)
+      log.debug(s"[Evaluation ${request.id}] Evaluation $request for $coordinator")
+      context.become(working((request, coordinator)))
+      processRequest(request, coordinator)
     case NoWorkToBeDone => // We asked for work, but either someone else got it first, or
     // there's literally no work to be done
     case x => log.error(s"Unknown message received: $x")
@@ -80,5 +80,6 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
     foreman ! WorkerIsDoneAndRequestsWork(self)
     // ... and change our mode
     context.become(idle)
+    log.debug(s"[Evaluation ${request.id}] Evaluated $request, result is $result")
   }
 }
