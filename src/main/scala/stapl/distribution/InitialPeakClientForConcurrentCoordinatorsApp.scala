@@ -60,7 +60,7 @@ object InitialPeakClientForConcurrentCoordinatorsApp {
       val system = ActorSystem("STAPL-client", customConf)
 
       val coordinators = new RemoteConcurrentCoordinatorGroup(system, config.coordinatorManagerHostname, config.coordinatorManagerPort)
-      val stats = system.actorOf(Props(classOf[StatisticsActor],1000,10))
+      val stats = system.actorOf(Props(classOf[StatisticsActor],"Initial peak clients",1000,10))
       val client = system.actorOf(Props(classOf[InitialPeakClientForConcurrentCoordinators], coordinators, config.nbRequests, stats), "client")
       client ! "go"
       println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators")

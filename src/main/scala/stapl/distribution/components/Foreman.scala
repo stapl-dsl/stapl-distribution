@@ -20,6 +20,7 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.util.ThroughputStatistics
+import stapl.distribution.util.ThroughputAndLatencyStatistics
 
 /**
  * Class used for managing workers.
@@ -80,18 +81,18 @@ class WorkerManager {
  * amongst multiple policy evaluator actors on its machine.
  */
 class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, pool: AttributeDatabaseConnectionPool) extends Actor with ActorLogging {
-  
-//  /**
-//   * The database connections for the workers
-//   */
-//  val pool = new AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", true /* readonly */)
+
+  //  /**
+  //   * The database connections for the workers
+  //   */
+  //  val pool = new AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", true /* readonly */)
 
   /**
    * The queues of work for our Workers: one queue of work received by the
    * foreman, one queue of work received by the workers (intermediate requests).
    */
-  val externalWorkQ = Queue.empty[(PolicyEvaluationRequest,ActorRef)]
-  val internalWorkQ = Queue.empty[(PolicyEvaluationRequest,ActorRef)]
+  val externalWorkQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
+  val internalWorkQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
 
   /**
    * The management of our workers.
@@ -101,20 +102,20 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
   /**
    * Some statistics of the throughput
    */
-  private val stats = new ThroughputStatistics
-  
+  private val stats = new ThroughputAndLatencyStatistics
+
   /**
-   * Returns whether we should preventively request more work because of 
-   * the current contents of the queues and the current number of workers. 
+   * Returns whether we should preventively request more work because of
+   * the current contents of the queues and the current number of workers.
    */
-  def shouldPreventivelyRefill = 
+  def shouldPreventivelyRefill =
     // our strategy: count the number of requests from the foreman and the
     // number of requests of internal workers and compare that to the number of
     // workers at hand so that there is always new work for the workers to work on
     // when they finish. However, requests from the foreman are likely to 
     // take longer than intermediate policy evaluation requests of the workers,
     // so weigh those less.
-    (externalWorkQ.size + math.floor(internalWorkQ.size/2.0)) <= workers.size
+    (externalWorkQ.size + math.floor(internalWorkQ.size / 2.0)) <= workers.size
 
   /**
    * Notifies workers that there's work available, provided they're
@@ -162,7 +163,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
      *
      * We will only receive this when we asked for it => add the work to the queue
      */
-    case CoordinatorForemanProtocol.WorkToBeDone(requests: List[(PolicyEvaluationRequest,coordinator)]) =>
+    case CoordinatorForemanProtocol.WorkToBeDone(requests: List[(PolicyEvaluationRequest, coordinator)]) =>
       log.debug(s"The coordinator sent work: $requests")
       externalWorkQ ++= requests
       notifyWorkers
@@ -174,11 +175,11 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
      */
     case ForemanWorkerProtocol.WorkerIsDoneAndRequestsWork(worker) =>
       log.debug(s"A worker finished his work: $worker")
-      stats.tick
+      stats.stop(worker)
       workers.setIdle(worker)
       self ! ForemanWorkerProtocol.WorkerRequestsWork(worker)
       // keep the coordinator up-to-date and ask for more work if needed
-      if(externalWorkQ.isEmpty && internalWorkQ.isEmpty) {
+      if (externalWorkQ.isEmpty && internalWorkQ.isEmpty) {
         log.debug("We're out of work, notify the coordinator of this")
         coordinator ! CoordinatorForemanProtocol.ForemanIsDoneAndRequestsWork(self, workers.size)
       } else if (shouldPreventivelyRefill) {
@@ -192,20 +193,26 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
      * Give him work if we have some.
      */
     case ForemanWorkerProtocol.WorkerRequestsWork(worker) =>
-      log.debug(s"A worker requests work: $worker")
-      // our prioritization between internal requests and external requests:
-      // give internal requests priority in order to keep the total latency
-      // of policy evaluations minimal
-      if (!internalWorkQ.isEmpty) {
-        val (request,coordinator) = internalWorkQ.dequeue
-        worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
-        workers.setBusy(worker)
-        log.debug(s"[Evaluation ${request.id}] Sent request to worker $worker for evaluation")
-      } else if (!externalWorkQ.isEmpty) {
-        val (request,coordinator) = externalWorkQ.dequeue
-        worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
-        workers.setBusy(worker)
-        log.debug(s"[Evaluation ${request.id}] Sent request to worker $worker for evaluation")
+      if (workers.idleWorkers.contains(worker)) {
+        log.debug(s"An idle worker requests work: $worker => sending him some work")
+        // our prioritization between internal requests and external requests:
+        // give internal requests priority in order to keep the total latency
+        // of policy evaluations minimal
+        if (!internalWorkQ.isEmpty) {
+          val (request, coordinator) = internalWorkQ.dequeue
+          worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
+          workers.setBusy(worker)
+          stats.start(worker)
+          log.debug(s"[Evaluation ${request.id}] Sent request to worker $worker for evaluation")
+        } else if (!externalWorkQ.isEmpty) {
+          val (request, coordinator) = externalWorkQ.dequeue
+          worker ! ForemanWorkerProtocol.WorkToBeDone(request, coordinator)
+          workers.setBusy(worker)
+          stats.start(worker)
+          log.debug(s"[Evaluation ${request.id}] Sent request to worker $worker for evaluation")
+        }
+      } else {
+        log.debug(s"A busy worker requests work: $worker => not sending him work")
       }
 
     /**

@@ -43,10 +43,6 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
   val conn = dataSource.getConnection
   conn.setAutoCommit(true)
 
-  private var getStringAttributeStmt: PreparedStatement = conn.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
-  private var storeAttributeStmt: PreparedStatement = conn.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);")
-  private var removeAttributeStmt: PreparedStatement = conn.prepareStatement("DELETE FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
-
   import scala.collection.JavaConversions._
 
   def load(key: (String, AttributeContainerType, String)): List[String] = {
@@ -54,6 +50,7 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
     val (entityId, cType, name) = key
     var queryResult: ResultSet = null
     try {
+      val getStringAttributeStmt: PreparedStatement = conn.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
       getStringAttributeStmt.setString(1, entityId)
       getStringAttributeStmt.setString(2, cType.toString())
       getStringAttributeStmt.setString(3, name)
@@ -68,7 +65,7 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
     } catch {
       case e: SQLException => {
         error("Could not fetch string attribute", e)
-        throw new RuntimeException("The connection was not open, cannot fetch attribute.")
+        throw e
       }
     } finally {
       if (queryResult != null) {
@@ -96,6 +93,7 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
   def delete(key: (String, AttributeContainerType, String)): Unit = {
     val (entityId, cType, name) = key
     try {
+      val removeAttributeStmt: PreparedStatement = conn.prepareStatement("DELETE FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
       removeAttributeStmt.setString(1, entityId)
       removeAttributeStmt.setString(2, cType.toString())
       removeAttributeStmt.setString(3, name)
@@ -123,6 +121,7 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
     delete(key)
     // then store all new values
     try {
+      val storeAttributeStmt: PreparedStatement = conn.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);")
       value foreach { x =>
         storeAttributeStmt.setString(1, entityId)
         storeAttributeStmt.setString(2, cType.toString())

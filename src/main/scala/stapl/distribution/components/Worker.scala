@@ -58,8 +58,11 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
       log.debug("Requesting work")
       foreman ! WorkerRequestsWork(self)
     case WorkToBeDone(request, coordinator) => // Send the work off to the implementation
-      log.debug(s"[Evaluation ${request.id}] Evaluation $request for $coordinator")
-      context.become(working((request, coordinator)))
+      log.debug(s"[Evaluation ${request.id}] Evaluating $request for $coordinator")
+      context.become(working((request, coordinator))) // NOTE: this does not mean anything, 
+      				// since the evaluation is synchronous and the the other requests are 
+      				// queued up in the message queue of this actor.
+      				// As a result, this worker WILL currently be assigned multiple requests.
       processRequest(request, coordinator)
     case NoWorkToBeDone => // We asked for work, but either someone else got it first, or
     // there's literally no work to be done

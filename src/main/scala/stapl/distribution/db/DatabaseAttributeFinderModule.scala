@@ -5,6 +5,7 @@ import stapl.core.pdp.EvaluationCtx
 import stapl.core._
 import stapl.core.ConcreteValue
 import grizzled.slf4j.Logging
+import stapl.distribution.util.LatencyStatistics
 
 /**
  * A class used for fetching attributes from a database during policy evaluation.
@@ -17,6 +18,8 @@ import grizzled.slf4j.Logging
  *    		the database connections.
  */
 class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection) extends AttributeFinderModule with Logging {
+  
+  val stats = new LatencyStatistics("Attribute database", 1000,10)
   
   /**
    * Fetch an attribute from the database. 
@@ -46,7 +49,9 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
     
     aType match {
       case String => {
-        val result = attributeDb.getStringAttribute(entityId, cType, name)
+        val result = stats.time {
+          attributeDb.getStringAttribute(entityId, cType, name)
+        }
         if(! multiValued) {
           // convert list to single value
           if(result.length == 0) {
@@ -61,7 +66,9 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
         }
       }
       case Number => {
-        val result = attributeDb.getLongAttribute(entityId, cType, name)
+        val result = stats.time {
+          attributeDb.getLongAttribute(entityId, cType, name)
+        }
         if(! multiValued) {
           // convert list to single value
           if(result.length == 0) {
@@ -76,7 +83,9 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
         }
       }
       case Bool => {
-        val result = attributeDb.getBooleanAttribute(entityId, cType, name)
+        val result = stats.time {
+          attributeDb.getBooleanAttribute(entityId, cType, name)
+        }
         if(! multiValued) {
           // convert list to single value
           if(result.length == 0) {
@@ -91,7 +100,9 @@ class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection
         }
       }
       case DateTime =>  {
-        val result = attributeDb.getDateAttribute(entityId, cType, name)
+        val result = stats.time {
+          attributeDb.getDateAttribute(entityId, cType, name)
+        }
         if(! multiValued) {
           // convert list to single value
           if(result.length == 0) {
