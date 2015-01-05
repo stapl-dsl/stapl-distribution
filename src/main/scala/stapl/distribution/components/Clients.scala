@@ -210,6 +210,7 @@ class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentC
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
+      log.debug(s"Waiting for: $waitingFor")
       if (waitingFor == 0) {
         timer.stop()
         log.info(s"Total duration of an initial peak of $nb requests = ${timer.duration}")
@@ -245,7 +246,7 @@ class ContinuousOverloadClientForConcurrentCoordinators(coordinators: RemoteConc
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
-      //log.debug(s"$waitingFor")
+      log.debug(s"$waitingFor")
       if (waitingFor == 0) {
         timer.stop()
         log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")

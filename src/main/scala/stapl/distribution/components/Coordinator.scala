@@ -409,6 +409,8 @@ class MockConcurrencyController(coordinator: ActorRef, updateWorkers: List[Actor
  * and blocking, so be sure to assign UpdateWorkers to separate threads.
  */
 class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
+  
+  log.debug(s"Start constructor of update worker $self")
 
   val stats = new LatencyStatistics(s"UpdateWorker $self", 50, 10)
 
@@ -436,6 +438,8 @@ class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) exten
 
     case x => log.warning(s"Unknown message receiced: $x")
   }
+  
+  log.debug(s"End constructor of update worker $self")
 
 }
 

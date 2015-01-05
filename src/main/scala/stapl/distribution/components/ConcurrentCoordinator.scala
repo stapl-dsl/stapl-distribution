@@ -114,7 +114,7 @@ class ForemanManager extends Actor with ActorLogging {
         foreman ! WorkToBeDone(work)
         log.debug(s"Sent work to $foreman: $work")
       } else {
-        log.debug("Sorry $foreman, we seem to be out of work.")
+        log.debug(s"Sorry $foreman, we seem to be out of work.")
       }
 
     /**
@@ -644,7 +644,9 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
   private val updateWorkers = scala.collection.mutable.ListBuffer[ActorRef]()
   // private val db = AttributeDatabaseConnectionPool("localhost", 3306, "stapl-attributes", "root", "root", false /* we want to write => NOT readonly */)
   1 to nbUpdateWorkers foreach { _ =>
+    log.debug("Setting up another update worker")
     updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, pool.getConnection))
+    log.debug("Setting up another update worker")
   }
   private val concurrencyController = new ConcurrentConcurrencyController(self, updateWorkers.toList, log)
 
@@ -675,20 +677,20 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       // clients, we could forward the request to the appropriate coordinator.
       coordinatorManager.whatShouldIManage(self, original) match {
         case BOTH =>
-          log.debug(s"[Evaluation ${id}] Received ($subjectId, $actionId, $resourceId) from $client. (I should manage both => queuing it immediately)")
+          log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client. (I should manage both => queuing it immediately)")
           // add the attributes according to our administration
           val updated = concurrencyController.startForBoth(original)
           // forward the updated request to our foreman manager 
           foremanManager ! Enqueue(updated, self)
         case SUBJECT =>
-          log.debug(s"[Evaluation ${id}] Received ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
+          log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
           val updated = concurrencyController.startForSubject(original)
           // ask the other coordinator to start the actual evaluation 
           // (the result will be sent directly to us)
           coordinatorManager.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
         case _ =>
           // we could forward here. For now: log an error
-          log.error(s"[Evaluation ${id}] Request received for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
+          log.error(s"[Evaluation ${id}] Received authorization request for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
       }
 
     /**
@@ -893,4 +895,6 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       log.warning(s"Unknown message received: $x")
 
   }
+  
+  log.debug(s"$self: I'm alive!")
 }
