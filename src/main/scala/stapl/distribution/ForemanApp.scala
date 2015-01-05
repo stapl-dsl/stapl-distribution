@@ -30,7 +30,8 @@ case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   foremanManagerIP: String = "not-provided", foremanManagerPort: Int = -1, foremanManagerPath: String = "not-provided",
   nbWorkers: Int = -1, policy: String = "not-provided", databaseIP: String = "not-provided",
-  databasePort: Int = -1, databaseType: String = "not-provided")
+  databasePort: Int = -1, databaseType: String = "not-provided",
+  logLevel: String = "INFO")
 
 object ForemanApp {
   def main(args: Array[String]) {
@@ -41,6 +42,8 @@ object ForemanApp {
       "count" -> ConcurrencyPolicies.maxNbAccess)
       
     val dbTypes = List("hazelcast", "mysql")
+      
+    val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
 
     val parser = new scopt.OptionParser[ForemanConfig]("scopt") {
       head("STAPL - coordinator")
@@ -93,6 +96,12 @@ object ForemanApp {
         if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
       } text (s"The type of database to employ. Valid values: $dbTypes")
       
+      opt[String]("log-level") action { (x, c) =>
+        c.copy(logLevel = x)
+      } validate { x =>
+        if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
+      } text (s"The log level. Valid values: $logLevels")
+      
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -101,6 +110,7 @@ object ForemanApp {
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
         akka.remote.netty.tcp.port = ${config.port}
+        akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("Foreman", customConf)
 
@@ -125,7 +135,7 @@ object ForemanApp {
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
           val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), db), "foreman")
-          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers")
+          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers (log-level: ${config.logLevel})")
         case Failure(t) =>
           t.printStackTrace()
           system.shutdown

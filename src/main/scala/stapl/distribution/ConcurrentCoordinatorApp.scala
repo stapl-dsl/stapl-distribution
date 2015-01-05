@@ -23,12 +23,15 @@ import stapl.distribution.components.ConcurrentCoordinatorManager
 import stapl.distribution.components.ForemanManager
 
 case class ConcurrentCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
-  databaseIP: String = "not-provided", databasePort: Int = -1, nbCoordinators: Int = -1, databaseType: String = "not-provided")
+  databaseIP: String = "not-provided", databasePort: Int = -1, nbCoordinators: Int = -1, databaseType: String = "not-provided",
+  logLevel: String = "INFO")
 
 object ConcurrentCoordinatorApp {
 
   def main(args: Array[String]) {
       
+    val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
+    
     val dbTypes = List("hazelcast", "mysql")
 
     val parser = new scopt.OptionParser[ConcurrentCoordinatorConfig]("scopt") {
@@ -68,6 +71,12 @@ object ConcurrentCoordinatorApp {
       } validate { x =>
         if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
       } text (s"The type of database to employ. Valid values: $dbTypes")
+      
+      opt[String]("log-level") action { (x, c) =>
+        c.copy(logLevel = x)
+      } validate { x =>
+        if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
+      } text (s"The log level. Valid values: $logLevels")
 
       help("help") text ("prints this usage text")
     }
@@ -78,6 +87,7 @@ object ConcurrentCoordinatorApp {
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.ip}
         akka.remote.netty.tcp.port = ${config.port}
+        akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-coordinator", customConf)
 
@@ -100,7 +110,7 @@ object ConcurrentCoordinatorApp {
       // set up the coordinators
       val coordinatorManager = system.actorOf(Props(classOf[ConcurrentCoordinatorManager], config.nbCoordinators, pool, config.nbUpdateWorkers), "coordinator-manager") 
 
-      println(s"${config.nbCoordinators} concurrent coordinators up and running at ${config.hostname}:${config.port} with each ${config.nbUpdateWorkers} update workers")
+      println(s"${config.nbCoordinators} concurrent coordinators up and running at ${config.hostname}:${config.port} with each ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel})")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

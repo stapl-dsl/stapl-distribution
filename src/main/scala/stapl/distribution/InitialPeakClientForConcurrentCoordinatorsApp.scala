@@ -24,30 +24,47 @@ import stapl.distribution.util.StatisticsActor
 case class InitialPeakClientForConcurrentCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorManagerHostname: String = "not-provided", coordinatorManagerPort: Int = -1,
-  nbRequests: Int = -1)
+  nbRequests: Int = -1,
+  logLevel: String = "INFO")
 
 object InitialPeakClientForConcurrentCoordinatorsApp {
   def main(args: Array[String]) {
+      
+    val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
+    
     val parser = new scopt.OptionParser[InitialPeakClientForConcurrentCoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
+      
       opt[String]("name") required () action { (x, c) =>
         c.copy(name = x)
       } text ("The name of this foreman. This is used for debugging.")
+      
       opt[String]("hostname") required () action { (x, c) =>
         c.copy(hostname = x)
       } text ("The hostname of the machine on which this client is run. This hostname will be used by other actors in their callbacks, so it should be externally accessible if you deploy the components on different machines.")
+      
       opt[Int]("port") required () action { (x, c) =>
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
+      
       opt[String]("coordinator-manager-hostname") required () action { (x, c) =>
         c.copy(coordinatorManagerHostname = x)
       } text ("The hostname of the machine on which the concurrent coordinators and their manager are running.")
+      
       opt[Int]("coordinator-manager-port") required () action { (x, c) =>
         c.copy(coordinatorManagerPort = x)
       } text ("The port on which the concurrent coordinators and their manager are running.")
+      
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
       } text ("The number of requests to send to the coordinator.")
+      
+      opt[String]("log-level") action { (x, c) =>
+        c.copy(logLevel = x)
+      } validate { x =>
+        if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
+      } text (s"The log level. Valid values: $logLevels")
+      
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -56,6 +73,7 @@ object InitialPeakClientForConcurrentCoordinatorsApp {
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
         akka.remote.netty.tcp.port = ${config.port}
+        akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
 
@@ -63,7 +81,7 @@ object InitialPeakClientForConcurrentCoordinatorsApp {
       val stats = system.actorOf(Props(classOf[StatisticsActor],"Initial peak clients",1000,10))
       val client = system.actorOf(Props(classOf[InitialPeakClientForConcurrentCoordinators], coordinators, config.nbRequests, stats), "client")
       client ! "go"
-      println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators")
+      println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

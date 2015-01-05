@@ -113,6 +113,8 @@ class ForemanManager extends Actor with ActorLogging {
         administration.foremanStartedWorkingOn(foreman, work)
         foreman ! WorkToBeDone(work)
         log.debug(s"Sent work to $foreman: $work")
+      } else {
+        log.debug("Sorry $foreman, we seem to be out of work.")
       }
 
     /**

@@ -25,11 +25,13 @@ import stapl.distribution.util.StatisticsActor
 case class SequentialClientForConcurrentCoordinatorsConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   nbThreads: Int = -1, nbRequests: Int = -1, policy: String = "not-provided",
-  coordinatorManagerHostname: String = "not-provided", coordinatorManagerPort: Int = -1)
+  coordinatorManagerHostname: String = "not-provided", coordinatorManagerPort: Int = -1,
+  logLevel: String = "INFO")
 
 object SequentialClientForConcurrentCoordinatorsApp {
   def main(args: Array[String]) {
     
+    val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
     
     val ehealthEM = stapl.distribution.db.entities.ehealth.EntityManager()
     val concEM = stapl.distribution.db.entities.concurrency.EntityManager()
@@ -65,6 +67,12 @@ object SequentialClientForConcurrentCoordinatorsApp {
         c.copy(nbRequests = x)
       } text ("The number of sequential requests that each client should send. 0 for infinite.")
       
+      opt[String]("log-level") action { (x, c) =>
+        c.copy(logLevel = x)
+      } validate { x =>
+        if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
+      } text (s"The log level. Valid values: $logLevels")
+      
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -73,6 +81,7 @@ object SequentialClientForConcurrentCoordinatorsApp {
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
         akka.remote.netty.tcp.port = ${config.port}
+        akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
 
@@ -87,7 +96,7 @@ object SequentialClientForConcurrentCoordinatorsApp {
           val stats = system.actorOf(Props(classOf[StatisticsActor],"Sequential clients", 1000,10))
           val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForConcurrentCoordinators], coordinators, stats)), "clients")
           clients ! Go(config.nbRequests)
-          println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to ${coordinators.coordinators.size} coordinators running at ${config.hostname}:${config.port}")
+          println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to ${coordinators.coordinators.size} coordinators running at ${config.hostname}:${config.port} (log-level: ${config.logLevel})")
         case Failure(t) =>
           t.printStackTrace()
           system.shutdown

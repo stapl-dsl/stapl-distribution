@@ -225,7 +225,6 @@ class ContinuousOverloadClientForConcurrentCoordinators(coordinators: RemoteConc
   import ClientProtocol._
   import ClientCoordinatorProtocol._
 
-  implicit val timeout = Timeout(2.second)
   implicit val ec = context.dispatcher
 
   val timer = new Timer
@@ -236,6 +235,7 @@ class ContinuousOverloadClientForConcurrentCoordinators(coordinators: RemoteConc
 
   def receive = {
     case "go" =>
+      waitingFor = nbRequests
       timer.start
       for (i <- 1 to nbRequests) {
         val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
@@ -245,17 +245,21 @@ class ContinuousOverloadClientForConcurrentCoordinators(coordinators: RemoteConc
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
+      //log.debug(s"$waitingFor")
       if (waitingFor == 0) {
         timer.stop()
         log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")
         peaksToDo -= 1
         // start another peak if we need to
         if(peaksToDo > 0) {
+          log.debug("Starting the next peak")
           self ! "go"
+        } else {
+          log.debug("Done")
         }
       }
     case x => log.error(s"Received unknown message: $x")
   }
 
-  log.info(s"Intial peak client created: $this")
+  log.info(s"Continuous overload client created: $this")
 }
