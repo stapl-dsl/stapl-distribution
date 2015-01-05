@@ -23,11 +23,13 @@ import stapl.distribution.components.ConcurrentCoordinatorManager
 import stapl.distribution.components.ForemanManager
 
 case class ConcurrentCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
-  databaseIP: String = "not-provided", databasePort: Int = -1, nbCoordinators: Int = -1)
+  databaseIP: String = "not-provided", databasePort: Int = -1, nbCoordinators: Int = -1, databaseType: String = "not-provided")
 
 object ConcurrentCoordinatorApp {
 
   def main(args: Array[String]) {
+      
+    val dbTypes = List("hazelcast", "mysql")
 
     val parser = new scopt.OptionParser[ConcurrentCoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
@@ -60,6 +62,12 @@ object ConcurrentCoordinatorApp {
       opt[Int]("database-port") required () action { (x, c) =>
         c.copy(databasePort = x)
       } text ("The port on which the database containing the attributes is listening.")
+      
+      opt[String]("db-type") required () action { (x, c) =>
+        c.copy(databaseType = x)
+      } validate { x =>
+        if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
+      } text (s"The type of database to employ. Valid values: $dbTypes")
 
       help("help") text ("prints this usage text")
     }
@@ -84,7 +92,10 @@ object ConcurrentCoordinatorApp {
       cfg.addMapConfig(mapCfg)
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
       // set up the database
-      val pool = new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+      val pool: AttributeDatabaseConnectionPool = config.databaseType match {
+        case "hazelcast" => new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")          
+      }
 
       // set up the coordinators
       val coordinatorManager = system.actorOf(Props(classOf[ConcurrentCoordinatorManager], config.nbCoordinators, pool, config.nbUpdateWorkers), "coordinator-manager") 

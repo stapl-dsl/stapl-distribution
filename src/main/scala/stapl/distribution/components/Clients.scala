@@ -219,3 +219,43 @@ class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentC
 
   log.info(s"Intial peak client created: $this")
 }
+
+class ContinuousOverloadClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
+
+  import ClientProtocol._
+  import ClientCoordinatorProtocol._
+
+  implicit val timeout = Timeout(2.second)
+  implicit val ec = context.dispatcher
+
+  val timer = new Timer
+  var waitingFor = nbRequests
+  var peaksToDo = if(nbPeaks == 0) Double.PositiveInfinity else nbPeaks
+
+  val em = EntityManager()
+
+  def receive = {
+    case "go" =>
+      timer.start
+      for (i <- 1 to nbRequests) {
+        val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+        val coordinator = coordinators.getCoordinatorFor(request)
+        coordinator ! request
+      }
+    case AuthorizationDecision(decision) =>
+      waitingFor -= 1
+      stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
+      if (waitingFor == 0) {
+        timer.stop()
+        log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")
+        peaksToDo -= 1
+        // start another peak if we need to
+        if(peaksToDo > 0) {
+          self ! "go"
+        }
+      }
+    case x => log.error(s"Received unknown message: $x")
+  }
+
+  log.info(s"Intial peak client created: $this")
+}

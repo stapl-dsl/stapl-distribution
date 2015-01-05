@@ -194,7 +194,7 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
       val intervalsLabel = f"Mean throughput over last $nbIntervals intervals = " // this is the longest label
       println(s"=== $name ".padTo(50, '='))
       // duration: overall
-      println("Mean duration over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
+      println(s"Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
       // duration: last X intervals
       println(f"Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
       // duration: last interval
@@ -313,7 +313,7 @@ class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 10
       println(s"=== $name ".padTo(50, '='))
       val intervalsLabel = f"Mean throughput over last $nbIntervals intervals = " // this is the longest label
       // duration: overall
-      println("Mean duration over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
+      println(s"Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
       // duration: last X intervals
       println(f"Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
       // duration: last interval

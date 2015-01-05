@@ -39,6 +39,7 @@ import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
 import com.hazelcast.core.HazelcastInstance
 import stapl.distribution.db.AttributeDatabaseConnectionPool
+import stapl.distribution.util.LatencyStatistics
 
 /**
  * Class used for temporarily storing the clients that sent an
@@ -409,6 +410,8 @@ class MockConcurrencyController(coordinator: ActorRef, updateWorkers: List[Actor
  */
 class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
 
+  val stats = new LatencyStatistics(s"UpdateWorker $self", 50, 10)
+
   /**
    * Note: we use the ObligationActions as messages.
    */
@@ -420,9 +423,11 @@ class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) exten
     case update: ConcreteChangeAttributeObligationAction =>
       log.debug(s"Starting attribute update: $update")
       val ConcreteChangeAttributeObligationAction(entityId, attribute, value, changeType) = update
-      changeType match {
-        case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
-        case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
+      stats.time {
+        changeType match {
+          case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
+          case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
+        }
       }
       coordinator ! UpdateFinished(self)
       log.debug(s"Finished attribute update: $update")
