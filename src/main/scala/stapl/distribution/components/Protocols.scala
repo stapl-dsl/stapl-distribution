@@ -75,12 +75,30 @@ object ForemanWorkerProtocol {
 }
 
 /**
- * For communication with ConcurrentActorManagers
+ * For communication with ConcurrentCoordinatorManagers
  */
-object ConcurrentActorManagerProtocol {
+object ConcurrentCoordinatorManagerProtocol {
   case class GetCoordinators
   // Note: it is very important that the order of the Coordinators is maintained
   // because this order leads to the distribution of requests and this distribution
   // should be the same on every node.
   case class Coordinators(coordinators: Seq[ActorRef])
+}
+
+/**
+ * For communication between DistributedCoordinators.
+ */
+object DistributedCoordinatorProtocol {
+  case class Register(ip: String, port: Int)
+  
+  /**
+   * @param	coordinators	
+   * 		The list of all coordinators, including the newly registered
+   * 		coordinator.
+   * 
+   * Note: it is very important that the order of the Coordinators is maintained
+   * because this order leads to the distribution of requests and this distribution
+   * should be the same on every node.
+   */  
+  case class AckOfRegister(coordinators: Seq[ActorRef]) 
 }

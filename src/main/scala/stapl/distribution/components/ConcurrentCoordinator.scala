@@ -604,13 +604,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
 }
 
 /**
- * Class used for representing the Coordinator that manages all foremen
- * and ensures correct concurrency.
- *
- * FIXME: the work mgmt is not correct yet: the list of requests assigned
- * to a foremen is not extended with newly assigned work and is also not cleared
- * if the foreman has finished certain jobs except if he sends a "Finished" message
- * (so not in the "give me more" message)
+ * 
  */
 class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int,
   coordinatorManager: CoordinatorLocater, foremanManager: ActorRef) extends Actor with ActorLogging {
@@ -790,6 +784,8 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
             log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for the SUBJECT, restarting it")
             // the commit failed => restart the evaluation (add the necessary
             // attributes to the original again)
+            // note: the concurrency controller will have already cleaned up its state
+            // in the commitForBoth() method
             val original = id2original(id)
             val updated = concurrencyController.startForSubject(original)
             // ask the other coordinator to restart as well. This coordinator will 

@@ -221,7 +221,7 @@ class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentC
   log.info(s"Intial peak client created: $this")
 }
 
-class ContinuousOverloadClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
+class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._

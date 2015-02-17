@@ -4,6 +4,8 @@ import stapl.core._
 
 object ConcurrencyPolicies extends BasicPolicy {
   
+  import stapl.core.dsl._
+  
   resource.owner = SimpleAttribute(String)
   // some attributes on which we will have contention
   resource.nbAccesses = SimpleAttribute(Number)

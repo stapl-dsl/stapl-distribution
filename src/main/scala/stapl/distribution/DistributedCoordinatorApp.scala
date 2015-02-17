@@ -17,15 +17,25 @@ import com.hazelcast.core.Hazelcast
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
-import stapl.distribution.components.ConcurrentCoordinator
+import stapl.distribution.components.DistributedCoordinator
 import stapl.distribution.components.DistributedCoordinatorManager
+import stapl.examples.policies.EhealthPolicy
+import stapl.distribution.policies.ConcurrencyPolicies
 
-case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, nbUpdateWorkers: Int = 5,
-  databaseIP: String = "not-provided", databasePort: Int = -1, otherCoordinatorIP: String = "not-provided")
+case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, 
+    nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1, 
+    otherCoordinatorIP: String = "not-provided", databaseType: String = "not-provided", policy: String = "not-provided")
 
 object DistributedCoordinatorApp {
 
   def main(args: Array[String]) {
+    
+    val dbTypes = List("hazelcast", "mysql")
+
+    val policies = Map(
+      "ehealth" -> EhealthPolicy.naturalPolicy,
+      "chinese-wall" -> ConcurrencyPolicies.chineseWall,
+      "count" -> ConcurrencyPolicies.maxNbAccess)
 
     val parser = new scopt.OptionParser[DistributedCoordinatorConfig]("scopt") {
       head("STAPL - coordinator")
@@ -43,9 +53,19 @@ object DistributedCoordinatorApp {
       } text ("The port on which this coordinator will be listening.")
       help("help") text ("prints this usage text")
 
-      opt[Int]("nbWorkers") required () action { (x, c) =>
+      opt[Int]("nb-workers") required () action { (x, c) =>
+        c.copy(nbWorkers = x)
+      } text ("The number of workers to spawn to evaluate policies asynchronously.")
+
+      opt[Int]("nb-update-workers") required () action { (x, c) =>
         c.copy(nbUpdateWorkers = x)
       } text ("The number of update workers to spawn to process attribute updates asynchronously.")
+      
+      opt[String]("db-type") required () action { (x, c) =>
+        c.copy(databaseType = x)
+      } validate { x =>
+        if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
+      } text (s"The type of database to employ. Valid values: $dbTypes")
 
       opt[String]("database-ip") required () action { (x, c) =>
         c.copy(databaseIP = x)
@@ -55,9 +75,15 @@ object DistributedCoordinatorApp {
         c.copy(databasePort = x)
       } text ("The port on which the database containing the attributes is listening.")
 
-      opt[String]("other-coordinator-ip") action { (x, c) =>
+      opt[String]("other-coordinator-ip") required () action { (x, c) =>
         c.copy(otherCoordinatorIP = x)
       } text ("The IP address of another coordinator in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
+      
+      opt[String]("policy") required () action { (x, c) =>
+        c.copy(policy = x)
+      } validate { x =>
+        if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
+      } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")      
 
       help("help") text ("prints this usage text")
     }
@@ -74,22 +100,27 @@ object DistributedCoordinatorApp {
       // set up hazelcast
       val cfg = new Config()
       cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
+      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.otherCoordinatorIP)
+      if(config.databaseType == "hazelcast") {
       val mapCfg = new MapConfig("stapl-attributes")
-      mapCfg.setMapStoreConfig(new MapStoreConfig()
-        .setEnabled(true)
-        .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-      cfg.addMapConfig(mapCfg)
+	      mapCfg.setMapStoreConfig(new MapStoreConfig()
+	        .setEnabled(true)
+	        .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
+	      cfg.addMapConfig(mapCfg)        
+      }
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
       // set up the database
-      val pool = new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+      val pool: AttributeDatabaseConnectionPool = config.databaseType match {
+        case "hazelcast" => new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")          
+      }
       // set up the coordinator manager
       val coordinatorManager = new DistributedCoordinatorManager(hazelcast, system)
       // get the id of our coordinator
       val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
 
       // set up the coordinator
-      val coordinator = system.actorOf(Props(classOf[ConcurrentCoordinator], coordinatorId, pool, config.nbUpdateWorkers, coordinatorManager), "coordinator")
+      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], coordinatorId, policies(config.policy), config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager), "coordinator")
       
       // register the coordinator
       coordinatorManager.register(config.ip,config.port)

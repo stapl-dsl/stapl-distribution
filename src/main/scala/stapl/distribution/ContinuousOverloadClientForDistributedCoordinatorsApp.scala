@@ -21,21 +21,23 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.ContinuousOverloadClientForCoordinatorGroup
-import stapl.distribution.components.RemoteConcurrentCoordinatorGroup
+import stapl.distribution.components.RemoteDistributedCoordinatorGroup
 import stapl.distribution.util.StatisticsActor
+import com.hazelcast.core.Hazelcast
+import com.hazelcast.config.Config
 
-case class ContinuousOverloadClientForConcurrentCoordinatorConfig(name: String = "not-provided",
+case class ContinuousOverloadClientForDistributedCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
-  coordinatorManagerHostname: String = "not-provided", coordinatorManagerPort: Int = -1,
+  coordinatorIP: String = "not-provided",
   nbRequests: Int = -1, nbPeaks: Int = -1,
   logLevel: String = "INFO")
 
-object ContinuousOverloadClientForConcurrentCoordinatorsApp {
+object ContinuousOverloadClientForDistributedCoordinatorsApp {
   def main(args: Array[String]) {
       
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
     
-    val parser = new scopt.OptionParser[ContinuousOverloadClientForConcurrentCoordinatorConfig]("scopt") {
+    val parser = new scopt.OptionParser[ContinuousOverloadClientForDistributedCoordinatorConfig]("scopt") {
       head("STAPL - Continuous Overload Client")
       
       opt[String]("name") required () action { (x, c) =>
@@ -50,13 +52,9 @@ object ContinuousOverloadClientForConcurrentCoordinatorsApp {
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
       
-      opt[String]("coordinator-manager-hostname") required () action { (x, c) =>
-        c.copy(coordinatorManagerHostname = x)
-      } text ("The hostname of the machine on which the concurrent coordinators and their manager are running.")
-      
-      opt[Int]("coordinator-manager-port") required () action { (x, c) =>
-        c.copy(coordinatorManagerPort = x)
-      } text ("The port on which the concurrent coordinators and their manager are running.")
+      opt[String]("coordinator-ip") required () action { (x, c) =>
+        c.copy(coordinatorIP = x)
+      } text ("The ip address of the machine on which one of the distributed coordinators is running.")
       
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
@@ -75,7 +73,7 @@ object ContinuousOverloadClientForConcurrentCoordinatorsApp {
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, ContinuousOverloadClientForConcurrentCoordinatorConfig()) map { config =>
+    parser.parse(args, ContinuousOverloadClientForDistributedCoordinatorConfig()) map { config =>
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
@@ -84,7 +82,13 @@ object ContinuousOverloadClientForConcurrentCoordinatorsApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
 
-      val coordinators = new RemoteConcurrentCoordinatorGroup(system, config.coordinatorManagerHostname, config.coordinatorManagerPort)
+      // set up hazelcast
+      val cfg = new Config()
+      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
+      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
+      val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+
+      val coordinators = new RemoteDistributedCoordinatorGroup(hazelcast, system)
       val stats = system.actorOf(Props(classOf[StatisticsActor],"Initial peak clients",1000,10))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 

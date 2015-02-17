@@ -43,6 +43,8 @@ class MockAttributeDatabaseConnection extends AttributeDatabaseConnection {
 }
 
 class UpdateAttributesTest extends AssertionsForJUnit with BasicPolicy {
+  
+  import stapl.core.dsl._
 
   subject.count = SimpleAttribute(Number)
 
