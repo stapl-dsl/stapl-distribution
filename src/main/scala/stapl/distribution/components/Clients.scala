@@ -187,7 +187,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with Actor
   log.info(s"Intial peak client created: $this")
 }
 
-class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, nb: Int, stats: ActorRef) extends Actor with ActorLogging {
+class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
