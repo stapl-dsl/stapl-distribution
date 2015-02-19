@@ -27,8 +27,10 @@ import stapl.distribution.util.ThroughputAndLatencyStatistics
  *  at run-time, i.e., all coordinators should be set up before the first request is sent
  *  in order to avoid concurrency issues.
  */
-class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int, pool: AttributeDatabaseConnectionPool,
-  coordinatorManager: CoordinatorLocater) extends Actor with ActorLogging {
+class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int, 
+    pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
+    enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
+    enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false) extends Actor with ActorLogging {
 
   import ClientCoordinatorProtocol._
   import ConcurrentCoordinatorProtocol._
@@ -46,8 +48,9 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
    * Some statistics of the throughput
    */
   //private val stats = new ThroughputStatistics
-  private val stats = new ThroughputStatistics("Coordinator", 1000, false) // disabled
-  private val workerStats = new ThroughputAndLatencyStatistics
+  private val inputStats = new ThroughputStatistics("Coordinator - in", 2000, 10, enableStatsIn)
+  private val outputStats = new ThroughputStatistics("Coordinator - out", 2000, 10, enableStatsOut)
+  private val workerStats = new ThroughputAndLatencyStatistics("Workers", 2000, 10, enableStatsWorkers)
 
   /**
    * A timestamp generator for generating ids for the evaluations.
@@ -71,7 +74,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
   val workers = new WorkerManager
   // create our workers
   1 to nbWorkers foreach { _ =>
-    workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection)) // TODO pass policy and attribute cache
+    workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, enableStatsDb)) // TODO pass policy and attribute cache
   }
 
   /**
@@ -159,6 +162,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
      * A clients sends an authorization request.
      */
     case AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) =>
+      inputStats.tick
       val client = sender
       // this is a request from a client => construct an id
       val id = constructNextId()
@@ -252,7 +256,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             val client = clients(id)
             client ! AuthorizationDecision(result.result.decision)
             clients.remove(id)
-            stats.tick
+            outputStats.tick
           } else {
             log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for BOTH")
             // the commit failed => restart the evaluation (add the necessary
@@ -354,7 +358,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
       val client = clients(id)
       client ! AuthorizationDecision(result.result.decision)
       clients.remove(id)
-      stats.tick
+      outputStats.tick
 
     /**
      * For a coordinator managing the SUBJECT.

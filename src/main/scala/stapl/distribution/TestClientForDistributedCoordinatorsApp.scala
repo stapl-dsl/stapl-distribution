@@ -20,24 +20,23 @@ import akka.routing.BroadcastPool
 import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
-import stapl.distribution.components.ContinuousOverloadClientForCoordinatorGroup
+import stapl.distribution.components.TestClientForCoordinatorGroup
 import stapl.distribution.components.RemoteDistributedCoordinatorGroup
 import stapl.distribution.util.StatisticsActor
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
 
-case class ContinuousOverloadClientForDistributedCoordinatorConfig(name: String = "not-provided",
+case class TestClientConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorIP: String = "not-provided",
-  nbRequests: Int = -1, nbPeaks: Int = -1,
-  logLevel: String = "INFO", waitForGo: Boolean = false)
+  logLevel: String = "INFO")
 
-object ContinuousOverloadClientForDistributedCoordinatorsApp {
+object TestClientApp {
   def main(args: Array[String]) {
       
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
     
-    val parser = new scopt.OptionParser[ContinuousOverloadClientForDistributedCoordinatorConfig]("scopt") {
+    val parser = new scopt.OptionParser[TestClientConfig]("scopt") {
       head("STAPL - Continuous Overload Client")
       
       opt[String]("name") required () action { (x, c) =>
@@ -56,28 +55,16 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
         c.copy(coordinatorIP = x)
       } text ("The ip address of the machine on which one of the distributed coordinators is running.")
       
-      opt[Int]("nb-requests") required () action { (x, c) =>
-        c.copy(nbRequests = x)
-      } text ("The number of requests to send to the coordinator for each peak.")
-      
-      opt[Int]("nb-peaks") required () action { (x, c) =>
-        c.copy(nbPeaks = x)
-      } text ("The number of peaks to perform. 0 for infinity")
-      
       opt[String]("log-level") action { (x, c) =>
         c.copy(logLevel = x)
       } validate { x =>
         if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
       } text (s"The log level. Valid values: $logLevels")
       
-      opt[Unit]("wait-for-go") action { (x, c) =>
-        c.copy(waitForGo = true)
-      } text ("Flag to indicate that the client should wait for user input to start generating load.")
-      
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, ContinuousOverloadClientForDistributedCoordinatorConfig()) map { config =>
+    parser.parse(args, TestClientConfig()) map { config =>
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
@@ -93,12 +80,10 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
 
       val coordinators = new RemoteDistributedCoordinatorGroup(hazelcast, system)
-      val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",2000,10))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
-      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, config.nbRequests, config.nbPeaks / 2, stats), "client1")
-      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, config.nbRequests, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
+      val client1 = system.actorOf(Props(classOf[TestClientForCoordinatorGroup], coordinators), "client1")
       
       if(coordinators.coordinators.size == 0) {
         println("No coordinators found, shutting down")
@@ -107,17 +92,8 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
         return
       }
       
-      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
-      if(config.waitForGo) {
-        println("Press any key to start generating load")
-        Console.readLine()
-      }
+      println(s"Test client started at ${config.hostname}:${config.port} for a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
       client1 ! "go"
-      Future { 
-        // have the other client start after 1 sec
-        blocking { Thread.sleep(1000L) }
-        client2 ! "go" 
-      }
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

@@ -17,9 +17,10 @@ import stapl.distribution.util.LatencyStatistics
  * 			An *opened* database connection. This class is not responsible for opening or closing
  *    		the database connections.
  */
-class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection) extends AttributeFinderModule with Logging {
+class DatabaseAttributeFinderModule(val attributeDb: AttributeDatabaseConnection,
+    enableStats: Boolean = false) extends AttributeFinderModule with Logging {
   
-  val stats = new LatencyStatistics("Attribute database", 1000,10)
+  val stats = new LatencyStatistics("Attribute database", 10000, 10, enableStats)
   
   /**
    * Fetch an attribute from the database. 

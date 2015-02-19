@@ -34,17 +34,23 @@ class Intervals(val maxSize: Int = 0) {
 /**
  * Class used for keeping and printing throughput statistics.
  */
-class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, enabled: Boolean = true) {
-  val totalStart = System.nanoTime()
-  var intervalStart = System.nanoTime()
+class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, nbIntervals: Int = 10, enabled: Boolean = true) {
+  var totalStart = 0L
+  var intervalStart = 0L
+  var started = false
 
   var totalCounter = 0L
   var intervalCounter = 0L
-  var lastIntervals = new Intervals(10)
+  var lastIntervals = new Intervals(nbIntervals)
 
   def tick() = {
     if (enabled) {
-      totalCounter += 1
+      if (!started) {
+        totalStart = System.nanoTime()
+        intervalStart = System.nanoTime()
+        started = true
+      }
+      totalCounter += 1L
       intervalCounter += 1L
       printThroughput
     }
@@ -86,6 +92,7 @@ class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int =
       val intervals = intervalsLabel + f"${lastIntervals.mean}%2.2f requests/sec"
       val last = "Last interval throughput = ".padTo(intervalsLabel.size, ' ') + f"$i%2.2f requests/sec"
       println(s"=== $name ".padTo(50, '='))
+      println("Total count = ".padTo(intervalsLabel.size, ' ') + f"$totalCounter requests")
       println(total)
       println(intervals)
       println(last)
@@ -98,7 +105,8 @@ class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int =
 /**
  *
  */
-class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, nbIntervals: Int = 10) {
+class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, nbIntervals: Int = 10,
+  enabled: Boolean = true) {
 
   import scala.collection.mutable.ListBuffer
 
@@ -108,17 +116,18 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
   val durationAllIntervals = new Intervals()
   val throughputAllIntervals = new Intervals()
 
-  def totalCount = durationsLastInterval.size * intervalSize + durationsLastInterval.size
+  def totalCount = durationAllIntervals.count.toLong * intervalSize + durationsLastInterval.size
   def intervalCount = durationsLastInterval.size
-  
+
   /**
    * Helper function to get the current timestamp.
    */
-  private def now() = System.nanoTime() 
+  private def now() = System.nanoTime()
 
-  val totalStart = now
-  var intervalStart = now
-  
+  var totalStart = 0L
+  var intervalStart = 0L
+  var started = false
+
   /**
    * Helper function to convert long timestamps to milliseconds.
    */
@@ -144,30 +153,30 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
       grizzled.math.stats.mean(values: _*)
     }
   }
-  
-  private val starts = scala.collection.mutable.Map[Any,Long]()
-  
+
+  private val starts = scala.collection.mutable.Map[Any, Long]()
+
   /**
    * Indicates that an iteration with the given id starts now.
-   * 
+   *
    * Overwrites the administration of another started iteration with the
    * same id if present.
    */
   def start(id: Any) = {
     starts(id) = now
   }
-  
+
   /**
    * Indicates that an iteration with the given id ends now.
    * Inserts the duration of this iteration into the administration
    * and removes this id from the administration.
    */
   def stop(id: Any) = {
-    val duration = toMs(starts(id),now)
+    val duration = toMs(starts(id), now)
     tick(duration)
     starts.remove(id)
   }
-  
+
   /**
    * Indicates that another iteration (of whatever) has ended with
    * no particular duration.
@@ -176,48 +185,58 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
 
   /**
    * Indicates that another iteration (of whatever) has ended with
-   * given duration. 
-   * 
+   * given duration.
+   *
    * @param duration In ms.
    */
   def tick(duration: Double): Unit = {
-    durationsLastInterval += duration
-    if (intervalCount % intervalSize == 0) {
-      // print
-      val meanDurationLastInterval = mean(durationsLastInterval)
-      durationsLastIntervals += meanDurationLastInterval
-      durationAllIntervals += meanDurationLastInterval
-      val throughputLastInterval = intervalThroughput
-      throughputLastIntervals += throughputLastInterval
-      throughputAllIntervals += throughputLastInterval
+    if (enabled) {
+      if (!started) {
+        totalStart = now
+        intervalStart = now
+        started = true
+      }
+      durationsLastInterval += duration
+      if (intervalCount % intervalSize == 0) {
+        // print
+        val meanDurationLastInterval = mean(durationsLastInterval)
+        durationsLastIntervals += meanDurationLastInterval
+        durationAllIntervals += meanDurationLastInterval
+        val throughputLastInterval = intervalThroughput
+        throughputLastIntervals += throughputLastInterval
+        throughputAllIntervals += throughputLastInterval
 
-      val intervalsLabel = f"Mean throughput over last $nbIntervals intervals = " // this is the longest label
-      println(s"=== $name ".padTo(50, '='))
-      // duration: overall
-      println(s"Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
-      // duration: last X intervals
-      println(f"Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
-      // duration: last interval
-      println("Mean duration over last interval = ".padTo(intervalsLabel.size, ' ') + f"$meanDurationLastInterval%2.2f ms")
-      // throughput: overall
-      println("Mean throughput over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${throughputAllIntervals.mean}%2.2f requests/sec")
-      // throughput: last X intervals
-      println(intervalsLabel + f"${throughputLastIntervals.mean}%2.2f requests/sec")
-      // throughput: last interval
-      println("Throughput of last interval = ".padTo(intervalsLabel.size, ' ') + f"$throughputLastInterval%2.2f requests/sec")
-      println("".padTo(50, '='))
+        val intervalsLabel = f"Mean throughput over last $nbIntervals intervals = " // this is the longest label
+        println(s"=== $name (intervals of $intervalSize requests)".padTo(70, '='))
+        println(s"Total count = ".padTo(intervalsLabel.size, ' ') + f"$totalCount requests")
+        // duration: overall
+        println(s"Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
+        // duration: last X intervals
+        println(f"Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
+        // duration: last interval
+        println("Mean duration over last interval = ".padTo(intervalsLabel.size, ' ') + f"$meanDurationLastInterval%2.2f ms")
+        // throughput: overall
+        println("Mean throughput over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${throughputAllIntervals.mean}%2.2f requests/sec")
+        // throughput: last X intervals
+        println(intervalsLabel + f"${throughputLastIntervals.mean}%2.2f requests/sec")
+        // throughput: last interval
+        println("Throughput of last interval = ".padTo(intervalsLabel.size, ' ') + f"$throughputLastInterval%2.2f requests/sec")
+        println("".padTo(70, '='))
 
-      // flush    
-      durationsLastInterval = ListBuffer[Double]()
-      intervalStart = System.nanoTime()
+        // flush    
+        durationsLastInterval = ListBuffer[Double]()
+        intervalStart = System.nanoTime()
+      }
+
     }
   }
 }
 
 /**
- * 
+ *
  */
-class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, nbIntervals: Int = 10) {
+class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, nbIntervals: Int = 10,
+  enabled: Boolean = true) {
 
   import scala.collection.mutable.ListBuffer
 
@@ -227,15 +246,15 @@ class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 10
 
   def totalCount = durationsLastInterval.size * intervalSize + durationsLastInterval.size
   def intervalCount = durationsLastInterval.size
-  
+
   /**
    * Helper function to get the current timestamp.
    */
-  private def now() = System.nanoTime() 
+  private def now() = System.nanoTime()
 
   val totalStart = now
   var intervalStart = now
-  
+
   /**
    * Helper function to convert long timestamps to milliseconds.
    */
@@ -256,40 +275,40 @@ class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 10
       grizzled.math.stats.mean(values: _*)
     }
   }
-  
-  private val starts = scala.collection.mutable.Map[Any,Long]()
-  
+
+  private val starts = scala.collection.mutable.Map[Any, Long]()
+
   /**
    * Indicates that an iteration with the given id starts now.
-   * 
+   *
    * Overwrites the administration of another started iteration with the
    * same id if present.
    */
   def start(id: Any) = {
     starts(id) = now
   }
-  
+
   /**
    * Indicates that an iteration with the given id ends now.
    * Inserts the duration of this iteration into the administration
    * and removes this id from the administration.
    */
   def stop(id: Any) = {
-    val duration = toMs(starts(id),now)
+    val duration = toMs(starts(id), now)
     tick(duration)
     starts.remove(id)
   }
-  
+
   /**
-   * 
+   *
    */
   def time[R](block: => R): R = {
     val start = now
     val result = block // call-by-name
-    tick(toMs(start,now))
+    tick(toMs(start, now))
     result
   }
-  
+
   /**
    * Indicates that another iteration (of whatever) has ended with
    * no particular duration.
@@ -298,31 +317,75 @@ class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 10
 
   /**
    * Indicates that another iteration (of whatever) has ended with
-   * given duration. 
-   * 
+   * given duration.
+   *
    * @param duration In ms.
    */
   def tick(duration: Double): Unit = {
-    durationsLastInterval += duration
-    if (intervalCount % intervalSize == 0) {
-      // print
-      val meanDurationLastInterval = mean(durationsLastInterval)
-      durationsLastIntervals += meanDurationLastInterval
-      durationAllIntervals += meanDurationLastInterval
+    if (enabled) {
+      durationsLastInterval += duration
+      if (intervalCount % intervalSize == 0) {
+        // print
+        val meanDurationLastInterval = mean(durationsLastInterval)
+        durationsLastIntervals += meanDurationLastInterval
+        durationAllIntervals += meanDurationLastInterval
 
-      println(s"=== $name ".padTo(50, '='))
-      val intervalsLabel = f"Mean throughput over last $nbIntervals intervals = " // this is the longest label
-      // duration: overall
-      println(s"Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
-      // duration: last X intervals
-      println(f"Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
-      // duration: last interval
-      println("Mean duration over last interval = ".padTo(intervalsLabel.size, ' ') + f"$meanDurationLastInterval%2.2f ms")
-      println("".padTo(50, '='))
+        println(s"=== $name ".padTo(70, '='))
+        val intervalsLabel = f"Mean throughput over last $nbIntervals intervals = " // this is the longest label
+        // duration: overall
+        println(s"Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
+        // duration: last X intervals
+        println(f"Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
+        // duration: last interval
+        println("Mean duration over last interval = ".padTo(intervalsLabel.size, ' ') + f"$meanDurationLastInterval%2.2f ms")
+        println("".padTo(70, '='))
 
-      // flush    
-      durationsLastInterval = ListBuffer[Double]()
-      intervalStart = System.nanoTime()
+        // flush    
+        durationsLastInterval = ListBuffer[Double]()
+        intervalStart = System.nanoTime()
+      }
     }
   }
+}
+
+/**
+ *
+ */
+class Counter(name: String, intervalSize: Int = 1000) {
+
+  val counts = scala.collection.mutable.Map[Any, Int]()
+
+  var leftInThisInterval = intervalSize
+
+  def count(key: Any) {
+    if (counts.contains(key)) {
+      counts(key) = counts(key) + 1
+    } else {
+      counts(key) = 1
+    }
+    leftInThisInterval -= 1
+    if (leftInThisInterval == 0) {
+      print
+    }
+  }
+
+  def reset() {
+    counts.clear
+  }
+
+  def print() {
+    val total = counts.values.sum.toDouble
+    // print
+    println(s"=== Counter: $name ".padTo(70, '='))
+    counts.foreach {
+      case (key, count) =>
+        println(f"$key: $count (${count.toDouble / total * 100}%2.2f%%)")
+    }
+    println("".padTo(70, '='))
+
+    // flush    
+    reset
+    leftInThisInterval = intervalSize
+  }
+
 }

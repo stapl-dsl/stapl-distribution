@@ -25,11 +25,12 @@ import stapl.distribution.db.AttributeDatabaseConnection
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request of a Foreman.
  */
-class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
+class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache, db: AttributeDatabaseConnection,
+    enableStatsDb: Boolean = false) extends Actor with ActorLogging {
 
   // TODO use attribute cache here if necessary
   val finder = new AttributeFinder
-  finder += new DatabaseAttributeFinderModule(db)
+  finder += new DatabaseAttributeFinderModule(db, enableStatsDb)
   finder += new HardcodedEnvironmentAttributeFinderModule
   val pdp = new PDP(policy, finder)
 

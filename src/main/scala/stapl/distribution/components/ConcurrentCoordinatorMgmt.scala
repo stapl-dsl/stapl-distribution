@@ -23,6 +23,7 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import scala.util.Failure
 import scala.util.Success
 import grizzled.slf4j.Logging
+import stapl.distribution.util.Counter
 
 /**
  * Trait used for representing a group of coordinators.
@@ -39,7 +40,7 @@ trait CoordinatorGroup {
 /**
  * Trait used for locating coordinators.
  */
-trait CoordinatorLocater {
+trait CoordinatorLocater extends Logging {
 
   /**
    * The list of coordinators
@@ -53,7 +54,8 @@ trait CoordinatorLocater {
   def getCoordinatorForSubject(entityId: String) = {
     val key = SUBJECT + ":" + entityId
     val hash = Math.abs(key.hashCode())
-    coordinators(hash % coordinators.size)
+    val i = hash % coordinators.size
+    coordinators(i)
   }
 
   /**

@@ -22,6 +22,7 @@ import stapl.distribution.db.entities.ehealth.EntityManager
 import stapl.distribution.components.ClientCoordinatorProtocol._
 import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.EvaluationEnded
+import stapl.distribution.util.Counter
 
 class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
@@ -213,7 +214,7 @@ class InitialPeakClientForConcurrentCoordinators(coordinators: RemoteConcurrentC
       log.debug(s"Waiting for: $waitingFor")
       if (waitingFor == 0) {
         timer.stop()
-        log.info(s"Total duration of an initial peak of $nb requests = ${timer.duration}")
+        log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms")
       }
     case x => log.error(s"Received unknown message: $x")
   }
@@ -230,9 +231,11 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
 
   val timer = new Timer
   var waitingFor = nbRequests
-  var peaksToDo = if(nbPeaks == 0) Double.PositiveInfinity else nbPeaks
+  var peaksToDo = if (nbPeaks == 0) Double.PositiveInfinity else nbPeaks
 
   val em = EntityManager()
+  
+  val coordinatorCounter = new Counter("Different coordinators", 10000)
 
   def receive = {
     case "go" =>
@@ -241,6 +244,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
       for (i <- 1 to nbRequests) {
         val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
         val coordinator = coordinators.getCoordinatorFor(request)
+        coordinatorCounter.count(coordinator)
         coordinator ! request
       }
     case AuthorizationDecision(decision) =>
@@ -252,13 +256,55 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
         log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")
         peaksToDo -= 1
         // start another peak if we need to
-        if(peaksToDo > 0) {
+        if (peaksToDo > 0) {
           log.debug("Starting the next peak")
           self ! "go"
         } else {
           log.debug("Done")
         }
       }
+    case x => log.error(s"Received unknown message: $x")
+  }
+
+  log.info(s"Continuous overload client created: $this")
+}
+
+/**
+ * A simple client for testing that only sends a request when the user indicates this.
+ */
+class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup) extends Actor with ActorLogging {
+
+  import ClientProtocol._
+  import ClientCoordinatorProtocol._
+
+  implicit val ec = context.dispatcher
+
+  val em = EntityManager()
+  
+  val coordinatorCounter = new Counter("Different coordinators", 10000)
+
+  def sendRequest() = {
+    println("Provide the number of requests to send (default: 1)")
+    var nb = 1
+    try {
+      nb = Console.readInt()
+    } catch {
+      case e: NumberFormatException => 
+    }
+    for (i <- 1 to nb) {
+      val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+      val coordinator = coordinators.getCoordinatorFor(request)
+      coordinatorCounter.count(coordinator)
+      coordinator ! request
+    }
+  }
+
+  def receive = {
+    case "go" =>
+      sendRequest()
+    case AuthorizationDecision(decision) =>
+      println(s"Received decision: $decision")
+      sendRequest()
     case x => log.error(s"Received unknown message: $x")
   }
 

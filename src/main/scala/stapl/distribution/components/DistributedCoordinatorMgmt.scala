@@ -91,7 +91,7 @@ class DistributedCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: A
   }
 
   /**
-   * Registers the given Actor as ConcurrentCoordinator.
+   * Registers a DistributedCoordinator on the given IP address and port.
    */
   def register(ip: String, port: Int): Unit = {
     backend.add((ip, port))

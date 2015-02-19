@@ -623,7 +623,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
    * Some statistics of the throughput
    */
   //private val stats = new ThroughputStatistics
-  private val stats = new ThroughputStatistics("Coordinator", 1000, false) // disabled
+  private val stats = new ThroughputStatistics("Coordinator", 1000, 10, false) // disabled
 
   /**
    * A timestamp generator for generating ids for the evaluations.
