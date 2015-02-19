@@ -21,12 +21,16 @@ import stapl.core.Permit
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 import stapl.distribution.db.LegacyAttributeDatabaseConnection
 import stapl.distribution.db.AttributeDatabaseConnection
+import stapl.core.Result
+import stapl.core.Deny
+import scala.concurrent.blocking
 
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request of a Foreman.
  */
 class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache, db: AttributeDatabaseConnection,
-    enableStatsDb: Boolean = false) extends Actor with ActorLogging {
+  enableStatsDb: Boolean = false, mockEvaluation: Boolean = false,
+  mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
 
   // TODO use attribute cache here if necessary
   val finder = new AttributeFinder
@@ -61,9 +65,9 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
     case WorkToBeDone(request, coordinator) => // Send the work off to the implementation
       log.debug(s"[Evaluation ${request.id}] Evaluating $request for $coordinator")
       context.become(working((request, coordinator))) // NOTE: this does not mean anything, 
-      				// since the evaluation is synchronous and the the other requests are 
-      				// queued up in the message queue of this actor.
-      				// As a result, this worker WILL currently be assigned multiple requests.
+      // since the evaluation is synchronous and the the other requests are 
+      // queued up in the message queue of this actor.
+      // As a result, this worker WILL currently be assigned multiple requests.
       processRequest(request, coordinator)
     case NoWorkToBeDone => // We asked for work, but either someone else got it first, or
     // there's literally no work to be done
@@ -76,8 +80,20 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
    *
    */
   private def processRequest(request: PolicyEvaluationRequest, coordinator: ActorRef): Unit = {
-    // TODO implement evaluating the policy asked for by the request
-    val result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
+    // the mock result
+    var result = new Result(Deny)
+    if (mockEvaluation) {
+      // If we should mock, wait for the given duration
+      if (mockEvaluationDuration > 0) {
+        blocking {
+          Thread.sleep(mockEvaluationDuration)
+        }
+      }
+    } else {
+      // If we should not mock, do an actual evaluation
+      // TODO implement evaluating the policy asked for by the request
+      result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
+    }
     // pass the decision directly to the coordinator...
     coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, result)
     // ... and request new work from the foreman...

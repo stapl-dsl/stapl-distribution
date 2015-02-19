@@ -26,7 +26,8 @@ case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: S
     nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1, 
     otherCoordinatorIP: String = "not-provided", databaseType: String = "not-provided", policy: String = "not-provided",
     logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
-    enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false)
+    enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
+    mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0)
 
 object DistributedCoordinatorApp {
 
@@ -109,7 +110,23 @@ object DistributedCoordinatorApp {
       
       opt[Unit]("enable-stats-workers") action { (x, c) =>
         c.copy(enableStatsWorkers = true)
-      } text (s"Flag to indicate that the coordinator should output stats about the workers.") 
+      } text (s"Flag to indicate that the coordinator should output stats about the workers.")     
+      
+      opt[Unit]("mock-decision") action { (x, c) =>
+        c.copy(mockDecision = true)
+      } text (s"Flag to indicate that the coordinator should not pass the work to workers, " +
+          "but just return a mock decision to the client immediately.")     
+      
+      opt[Unit]("mock-evaluation") action { (x, c) =>
+        c.copy(mockEvaluation = true)
+      } text (s"Flag to indicate that the coordinator should pass the work to workers, " + 
+          "but that these workers should not evaluate the actual policy and just return a mock decision " +
+          "to the coordinator immediately. This option is ignored if --mock-desision is set as well, since " +
+          "the request will never reach the workers.") 
+      
+      opt[Int]("mock-evaluation-duration") action { (x, c) =>
+        c.copy(mockEvaluationDuration = x)
+      } text ("The duration of a mock evaluation in ms. Default: 0ms. Only used when --mock-evaluation-duration is set.") 
 
       help("help") text ("prints this usage text")
     }
@@ -153,12 +170,19 @@ object DistributedCoordinatorApp {
       // set up the coordinator
       val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], coordinatorId, policies(config.policy), 
     		  config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager, 
-    		  config.enableStatsIn, config.enableStatsOut, config.enableStatsWorkers, config.enableStatsDb), "coordinator")
+    		  config.enableStatsIn, config.enableStatsOut, config.enableStatsWorkers, config.enableStatsDb,
+    		  config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
       
       // register the coordinator
       coordinatorManager.register(config.ip,config.port)
 
-      println(s"DistributedCoordinator #$coordinatorId up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel})")
+      var mockString = "";
+      if(config.mockDecision) {
+        mockString = ", mocking decision"
+      } else if(config.mockEvaluation) {
+        mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}"
+      }
+      println(s"DistributedCoordinator #$coordinatorId up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

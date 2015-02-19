@@ -14,6 +14,7 @@ import stapl.core.ConcreteObligationAction
 import scala.collection.mutable.Queue
 import stapl.core.AbstractPolicy
 import stapl.distribution.util.ThroughputAndLatencyStatistics
+import stapl.core.Deny
 
 /**
  *  This is a coordinator that is part of a distributed group of coordinators. This means
@@ -27,10 +28,12 @@ import stapl.distribution.util.ThroughputAndLatencyStatistics
  *  at run-time, i.e., all coordinators should be set up before the first request is sent
  *  in order to avoid concurrency issues.
  */
-class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int, 
-    pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
-    enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
-    enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false) extends Actor with ActorLogging {
+class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
+  pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
+  enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
+  enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
+  mockDecision: Boolean = false, mockEvaluation: Boolean = false,
+  mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
 
   import ClientCoordinatorProtocol._
   import ConcurrentCoordinatorProtocol._
@@ -74,7 +77,8 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
   val workers = new WorkerManager
   // create our workers
   1 to nbWorkers foreach { _ =>
-    workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, enableStatsDb)) // TODO pass policy and attribute cache
+    workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, enableStatsDb, 
+        mockEvaluation, mockEvaluationDuration)) // TODO pass policy and attribute cache
   }
 
   /**
@@ -164,34 +168,38 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
     case AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) =>
       inputStats.tick
       val client = sender
-      // this is a request from a client => construct an id
-      val id = constructNextId()
-      // store the client to forward the result later on
-      clients(id) = client
-      // construct the internal request
-      val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
-      // store the original
-      id2original(id) = original
-      // In case of intelligent clients, we should only have received this request
-      // if we should manage the subject of the request. In case of unintelligent 
-      // clients, we could forward the request to the appropriate coordinator.
-      coordinatorManager.whatShouldIManage(self, original) match {
-        case BOTH =>
-          log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client. (I should manage both => queuing it immediately)")
-          // add the attributes according to our administration
-          val updated = concurrencyController.startForBoth(original)
-          // forward the updated request to one of our workers
-          externalWorkQ.enqueue((updated, self))
-          notifyWorkers
-        case SUBJECT =>
-          log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
-          val updated = concurrencyController.startForSubject(original)
-          // ask the other coordinator to start the actual evaluation 
-          // (the result will be sent directly to us)
-          coordinatorManager.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
-        case _ =>
-          // we could forward here. For now: log an error
-          log.error(s"[Evaluation ${id}] Received authorization request for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
+      if (mockDecision) {
+        client ! AuthorizationDecision(Deny)
+      } else {
+        // this is a request from a client => construct an id
+        val id = constructNextId()
+        // store the client to forward the result later on
+        clients(id) = client
+        // construct the internal request
+        val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
+        // store the original
+        id2original(id) = original
+        // In case of intelligent clients, we should only have received this request
+        // if we should manage the subject of the request. In case of unintelligent 
+        // clients, we could forward the request to the appropriate coordinator.
+        coordinatorManager.whatShouldIManage(self, original) match {
+          case BOTH =>
+            log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client. (I should manage both => queuing it immediately)")
+            // add the attributes according to our administration
+            val updated = concurrencyController.startForBoth(original)
+            // forward the updated request to one of our workers
+            externalWorkQ.enqueue((updated, self))
+            notifyWorkers
+          case SUBJECT =>
+            log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
+            val updated = concurrencyController.startForSubject(original)
+            // ask the other coordinator to start the actual evaluation 
+            // (the result will be sent directly to us)
+            coordinatorManager.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
+          case _ =>
+            // we could forward here. For now: log an error
+            log.error(s"[Evaluation ${id}] Received authorization request for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
+        }
       }
 
     /**
@@ -265,8 +273,8 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             // note: the concurrency controller will have already cleaned up its state
             // in the commitForBoth() method
             val updated = concurrencyController.startForBoth(original)
-		    externalWorkQ.enqueue((updated, self))
-		    notifyWorkers
+            externalWorkQ.enqueue((updated, self))
+            notifyWorkers
           }
         case SUBJECT =>
           // try to commit for the subject
