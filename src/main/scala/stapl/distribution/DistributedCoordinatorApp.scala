@@ -18,7 +18,7 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 import stapl.distribution.components.DistributedCoordinator
-import stapl.distribution.components.DistributedCoordinatorManager
+import stapl.distribution.components.HazelcastDistributedCoordinatorManager
 import stapl.examples.policies.EhealthPolicy
 import stapl.distribution.policies.ConcurrencyPolicies
 
@@ -168,7 +168,7 @@ object DistributedCoordinatorApp {
         case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
       }
       // set up the coordinator manager
-      val coordinatorManager = new DistributedCoordinatorManager(hazelcast, system)
+      val coordinatorManager = new HazelcastDistributedCoordinatorManager(hazelcast, system)
       // get the id of our coordinator
       val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
 

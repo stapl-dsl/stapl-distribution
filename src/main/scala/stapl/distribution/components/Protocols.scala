@@ -88,17 +88,49 @@ object ConcurrentCoordinatorManagerProtocol {
 /**
  * For communication between DistributedCoordinators.
  */
-object DistributedCoordinatorProtocol {
+object DistributedCoordinatorRegistrationProtocol {
   case class Register(ip: String, port: Int)
   
   /**
+   * 
+   */
+  case class RedirectToMasterCoordinator(master: ActorRef)
+  
+  /**
+   * @param yourId
+   * 		The id of the newly regsitered coordinator.
    * @param	coordinators	
-   * 		The list of all coordinators, including the newly registered
-   * 		coordinator.
+   * 		The list of all coordinators as ActorRef and their id. This list includes 
+   *   		the newly registered coordinator.
    * 
    * Note: it is very important that the order of the Coordinators is maintained
    * because this order leads to the distribution of requests and this distribution
    * should be the same on every node.
    */  
-  case class AckOfRegister(coordinators: Seq[ActorRef]) 
+  case class AckOfRegister(yourId: Int, coordinators: Seq[(Int,ActorRef)]) 
+  
+  /**
+   * 
+   */
+  case class ListOfCoordinatorsWasUpdated(coordinators: Seq[(Int,ActorRef)]) 
+}
+object ClientRegistrationProtocol {
+  case class Register
+  
+  /**
+   * @param yourId
+   * 		The id of the newly regsitered coordinator.
+   * @param	coordinators	
+   * 		The list of all coordinators as ActorRef and their id. This list includes 
+   *   		the newly registered coordinator.
+   * 
+   * Note: it is very important that the order of the Coordinators is maintained
+   * because this order leads to the distribution of requests and this distribution
+   * should be the same on every node.
+   */  
+  case class AckOfRegister(yourId: Int, coordinators: Seq[(Int,ActorRef)])
+  
+  /**
+   * Note: for now, we do not update the list of coordinators for clients
+   */
 }

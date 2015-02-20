@@ -25,6 +25,34 @@ import scala.util.Success
 import grizzled.slf4j.Logging
 
 /**
+ *
+ */
+abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
+  extends CoordinatorLocater with CoordinatorGroup {
+
+  override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
+
+  /**
+   * Helper methods to update the local list to the values in Hazelcast
+   */
+  protected def addCoordinator(x: (String, Int)) = {
+    val (ip, port) = x
+    // FIXME dit klopt niet meer
+    val selection = actorSystem.actorSelection(s"akka.tcp://STAPL-coordinator@$ip:$port/user/coordinator")
+    implicit val dispatcher = actorSystem.dispatcher
+    selection.resolveOne(3.seconds).onComplete {
+      case Success(coordinator) =>
+        coordinators += coordinator
+        println(s"Found and added coordinator at $x")
+      case Failure(t) =>
+        println(s"Did not find coordinator at $x: ")
+        t.printStackTrace()
+    }
+  }
+
+}
+
+/**
  * Class used for managing the different coordinators on the different nodes of the whole system.
  *
  * We store this list locally in order to speed up finding the correct coordinator
@@ -39,8 +67,8 @@ import grizzled.slf4j.Logging
  * control is not guaranteed for the evaluation that are ongoing when a coordinator
  * joins.
  */
-class DistributedCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
-  extends CoordinatorLocater with CoordinatorGroup with ItemListener[(String, Int)] {
+class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
+  extends DistributedCoordinatorManager(actorSystem) with ItemListener[(String, Int)] {
 
   import scala.collection.JavaConversions._
   import akka.serialization._
@@ -50,31 +78,11 @@ class DistributedCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: A
    */
   private val backend = hazelcast.getList[(String, Int)]("stapl-coordinators")
 
-  override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
-
   // set up the initial list of coordinators based on the list in Hazelcast
   backend foreach { addCoordinator(_) }
 
   // listen to updates to keep up-to-date
   backend.addItemListener(this, true)
-
-  /**
-   * Helper methods to update the local list to the values in Hazelcast
-   */
-  private def addCoordinator(x: (String, Int)) = {
-    val (ip, port) = x
-    // FIXME dit klopt niet meer
-    val selection = actorSystem.actorSelection(s"akka.tcp://STAPL-coordinator@$ip:$port/user/coordinator")
-    implicit val dispatcher = actorSystem.dispatcher
-    selection.resolveOne(3.seconds).onComplete {
-      case Success(coordinator) =>
-        coordinators += coordinator
-        println(s"Found and added coordinator at $x")
-      case Failure(t) =>
-        println(s"Did not find coordinator at $x: ")
-        t.printStackTrace()
-    }
-  }
 
   /**
    * When an item is added, just reset the list
