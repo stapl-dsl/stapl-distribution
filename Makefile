@@ -9,6 +9,8 @@ dnetcloud:
 	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-2:/home/ubuntu/stapl
 	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-3:/home/ubuntu/stapl
 	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-4:/home/ubuntu/stapl
+	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-5:/home/ubuntu/stapl
+	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-6:/home/ubuntu/stapl
 
 clean:
 	cd ../stapl-core; mvn clean install
@@ -25,3 +27,5 @@ clean:
 	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-2:/home/ubuntu/stapl
 	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-3:/home/ubuntu/stapl
 	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-4:/home/ubuntu/stapl	
+	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-5:/home/ubuntu/stapl
+	scp target/stapl-distribution-0.0.1-SNAPSHOT-allinone.jar ubuntu@stapl-worker-6:/home/ubuntu/stapl

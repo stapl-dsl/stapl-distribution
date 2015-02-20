@@ -55,7 +55,9 @@ trait CoordinatorLocater extends Logging {
     val key = SUBJECT + ":" + entityId
     val hash = Math.abs(key.hashCode())
     val i = hash % coordinators.size
-    coordinators(i)
+    val coordinator = coordinators(i) 
+    debug(s"Chose to send request to coordinator $i ($coordinator)")
+    coordinator
   }
 
   /**

@@ -83,7 +83,7 @@ class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int =
   }
 
   def printThroughput {
-    if (intervalCount % 1000 == 0 && intervalCount > 1000 && intervalDuration > 1000) {
+    if (intervalCount % intervalSize == 0) {
       val i = intervalThroughput
       lastIntervals += i
       // print

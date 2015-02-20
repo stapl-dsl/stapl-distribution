@@ -156,6 +156,73 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   log.info(s"Sequential client created: $this")
 }
 
+class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup, stats: ActorRef) extends Actor with ActorLogging {
+
+  import ClientProtocol._
+
+  implicit val timeout = Timeout(60.second)
+  implicit val ec = context.dispatcher
+
+  val timer = new Timer
+
+  val em = EntityManager()
+
+  val coordinatorCounter = new Counter("Different coordinators", 10000)
+
+  def sendRequest = {
+    timer.time {
+      val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+      val coordinator = coordinators.getCoordinatorFor(request)
+      val f = coordinator ? request
+      val decision: Decision = Await.ready(f, 180 seconds).value match {
+        case None =>
+          // should never happen, but just in case...
+          println("WTF: None received from ping???")
+          Deny
+        case Some(result) => result match {
+          case Success(AuthorizationDecision(decision)) =>
+            log.debug(s"Result of policy evaluation was: $decision")
+            decision
+          case Success(x) =>
+            log.warning(s"No idea what I received here: $x => default deny")
+            break
+            Deny
+          case Failure(e: AskTimeoutException) =>
+            log.warning("Timeout => default deny")
+            break
+            Deny
+          case Failure(e) =>
+            log.warning("Some other failure? => default deny anyway")
+            break
+            Deny
+        }
+      }
+    }
+    stats ! EvaluationEnded(timer.mean) // note: we only use the timer for a single value
+    timer.reset
+  }
+
+  def receive = {
+    case Go(nb) => // launch a test of 100 messages 
+      breakable {
+        if (nb == 0) {
+          // infinte loop
+          while (true) {
+            sendRequest
+          }
+        } else {
+          for (i <- 1 to nb) {
+            sendRequest
+          }
+        }
+      }
+      log.info(s"Client finished: $nb requests in ${timer.total} ms (mean: ${timer.mean} ms)")
+    case msg => log.error(s"Received unknown message: $msg")
+  }
+
+  log.info(s"Sequential client created: $this")
+}
+
 class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with ActorLogging {
 
   import ClientProtocol._
@@ -234,7 +301,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
   var peaksToDo = if (nbPeaks == 0) Double.PositiveInfinity else nbPeaks
 
   val em = EntityManager()
-  
+
   val coordinatorCounter = new Counter("Different coordinators", 10000)
 
   def receive = {
@@ -280,7 +347,7 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup) extends Acto
   implicit val ec = context.dispatcher
 
   val em = EntityManager()
-  
+
   val coordinatorCounter = new Counter("Different coordinators", 10000)
 
   def sendRequest() = {
@@ -289,7 +356,7 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup) extends Acto
     try {
       nb = Console.readInt()
     } catch {
-      case e: NumberFormatException => 
+      case e: NumberFormatException =>
     }
     for (i <- 1 to nb) {
       val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
@@ -303,7 +370,7 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup) extends Acto
     case "go" =>
       sendRequest()
     case AuthorizationDecision(decision) =>
-      println(s"Received decision: $decision")
+      log.debug(s"Received decision: $decision")
       sendRequest()
     case x => log.error(s"Received unknown message: $x")
   }

@@ -30,7 +30,7 @@ import stapl.core.Deny
  */
 class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
   pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
-  enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
+  enableStatsIn: Boolean = false, enableStatsOut: Boolean = false, statsOutInterval: Int = 2000,
   enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
   mockDecision: Boolean = false, mockEvaluation: Boolean = false,
   mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
@@ -52,7 +52,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
    */
   //private val stats = new ThroughputStatistics
   private val inputStats = new ThroughputStatistics("Coordinator - in", 2000, 10, enableStatsIn)
-  private val outputStats = new ThroughputStatistics("Coordinator - out", 2000, 10, enableStatsOut)
+  private val outputStats = new ThroughputStatistics("Coordinator - out", statsOutInterval, 10, enableStatsOut)
   private val workerStats = new ThroughputAndLatencyStatistics("Workers", 2000, 10, enableStatsWorkers)
 
   /**
@@ -101,7 +101,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
   1 to nbUpdateWorkers foreach { _ =>
     log.debug("Setting up another update worker")
     updateWorkers += context.actorOf(Props(classOf[UpdateWorker], self, pool.getConnection))
-    log.debug("Setting up another update worker")
+    log.debug("Finished setting up another update worker")
   }
 
   /**
@@ -139,7 +139,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
      */
     case ForemanWorkerProtocol.WorkerRequestsWork(worker) =>
       if (workers.idleWorkers.contains(worker)) {
-        log.debug(s"An idle worker requests work: $worker => sending him some work")
+        log.debug(s"An idle worker requests work: $worker => let's see whether I can send him some work")
         // our prioritization between internal requests and external requests:
         // give internal requests priority in order to keep the total latency
         // of policy evaluations minimal

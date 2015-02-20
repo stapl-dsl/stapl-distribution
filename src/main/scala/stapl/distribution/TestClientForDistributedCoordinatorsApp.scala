@@ -25,46 +25,48 @@ import stapl.distribution.components.RemoteDistributedCoordinatorGroup
 import stapl.distribution.util.StatisticsActor
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
+import org.slf4j.LoggerFactory
+import grizzled.slf4j.Logging
 
-case class TestClientConfig(name: String = "not-provided",
+case class TestClientForDistributedCoordinatorsConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorIP: String = "not-provided",
   logLevel: String = "INFO")
 
-object TestClientApp {
+object TestClientForDistributedCoordinatorsApp extends Logging {
   def main(args: Array[String]) {
-      
+
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
-    
-    val parser = new scopt.OptionParser[TestClientConfig]("scopt") {
+
+    val parser = new scopt.OptionParser[TestClientForDistributedCoordinatorsConfig]("scopt") {
       head("STAPL - Continuous Overload Client")
-      
+
       opt[String]("name") required () action { (x, c) =>
         c.copy(name = x)
       } text ("The name of this foreman. This is used for debugging.")
-      
+
       opt[String]("hostname") required () action { (x, c) =>
         c.copy(hostname = x)
       } text ("The hostname of the machine on which this client is run. This hostname will be used by other actors in their callbacks, so it should be externally accessible if you deploy the components on different machines.")
-      
+
       opt[Int]("port") required () action { (x, c) =>
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
-      
+
       opt[String]("coordinator-ip") required () action { (x, c) =>
         c.copy(coordinatorIP = x)
       } text ("The ip address of the machine on which one of the distributed coordinators is running.")
-      
+
       opt[String]("log-level") action { (x, c) =>
         c.copy(logLevel = x)
       } validate { x =>
         if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
       } text (s"The log level. Valid values: $logLevels")
-      
+
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, TestClientConfig()) map { config =>
+    parser.parse(args, TestClientForDistributedCoordinatorsConfig()) map { config =>      
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
@@ -72,6 +74,10 @@ object TestClientApp {
         akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
+
+      // set log level
+      LoggerFactory.getLogger("stapl.distribution").asInstanceOf[ch.qos.logback.classic.Logger]
+        .setLevel(ch.qos.logback.classic.Level.valueOf(config.logLevel))
 
       // set up hazelcast
       val cfg = new Config()
@@ -84,15 +90,15 @@ object TestClientApp {
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
       val client1 = system.actorOf(Props(classOf[TestClientForCoordinatorGroup], coordinators), "client1")
-      
-      if(coordinators.coordinators.size == 0) {
+
+      if (coordinators.coordinators.size == 0) {
         println("No coordinators found, shutting down")
         hazelcast.shutdown()
         system.shutdown
         return
       }
-      
-      println(s"Test client started at ${config.hostname}:${config.port} for a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
+
+      info(s"Test client started at ${config.hostname}:${config.port} for a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
       client1 ! "go"
     } getOrElse {
       // arguments are bad, error message will have been displayed

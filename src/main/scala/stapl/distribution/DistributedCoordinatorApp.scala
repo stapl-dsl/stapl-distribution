@@ -22,19 +22,19 @@ import stapl.distribution.components.DistributedCoordinatorManager
 import stapl.examples.policies.EhealthPolicy
 import stapl.distribution.policies.ConcurrencyPolicies
 
-case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1, 
-    nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1, 
-    otherCoordinatorIP: String = "not-provided", databaseType: String = "not-provided", policy: String = "not-provided",
-    logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
-    enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
-    mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0)
+case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1,
+  nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
+  otherCoordinatorIP: String = "not-provided", databaseType: String = "not-provided", policy: String = "not-provided",
+  logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
+  statsOutInterval: Int = 2000,  enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
+  mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0)
 
 object DistributedCoordinatorApp {
 
   def main(args: Array[String]) {
-      
+
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
-    
+
     val dbTypes = List("hazelcast", "mysql")
 
     val policies = Map(
@@ -65,7 +65,7 @@ object DistributedCoordinatorApp {
       opt[Int]("nb-update-workers") required () action { (x, c) =>
         c.copy(nbUpdateWorkers = x)
       } text ("The number of update workers to spawn to process attribute updates asynchronously.")
-      
+
       opt[String]("db-type") required () action { (x, c) =>
         c.copy(databaseType = x)
       } validate { x =>
@@ -83,50 +83,55 @@ object DistributedCoordinatorApp {
       opt[String]("other-coordinator-ip") action { (x, c) =>
         c.copy(otherCoordinatorIP = x)
       } text ("The IP address of another coordinator in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
-      
+
       opt[String]("policy") required () action { (x, c) =>
         c.copy(policy = x)
       } validate { x =>
         if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
-      } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")  
-      
+      } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
+
       opt[String]("log-level") action { (x, c) =>
         c.copy(logLevel = x)
       } validate { x =>
         if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
-      } text (s"The log level. Valid values: $logLevels")    
-      
+      } text (s"The log level. Valid values: $logLevels")
+
       opt[Unit]("enable-stats-in") action { (x, c) =>
         c.copy(enableStatsIn = true)
-      } text (s"Flag to indicate that the coordinator should output stats about the incoming requests.")    
-      
+      } text (s"Flag to indicate that the coordinator should output stats about the incoming requests.")
+
       opt[Unit]("enable-stats-out") action { (x, c) =>
         c.copy(enableStatsOut = true)
-      } text (s"Flag to indicate that the coordinator should output stats about the outoing decisions.")    
-      
+      } text (s"Flag to indicate that the coordinator should output stats about the outoing decisions.")
+
+      opt[Int]("stats-out-interval") action { (x, c) =>
+        c.copy(statsOutInterval = x)
+      } text ("The interval on which to report on output stats, in number of requests. " + 
+          "Only taken into account if --enable-stats-out is set. Default: 2000.")
+
       opt[Unit]("enable-stats-db") action { (x, c) =>
         c.copy(enableStatsDb = true)
-      } text (s"Flag to indicate that the coordinator should output stats about the attribute database.")    
-      
+      } text (s"Flag to indicate that the coordinator should output stats about the attribute database.")
+
       opt[Unit]("enable-stats-workers") action { (x, c) =>
         c.copy(enableStatsWorkers = true)
-      } text (s"Flag to indicate that the coordinator should output stats about the workers.")     
-      
+      } text (s"Flag to indicate that the coordinator should output stats about the workers.")
+
       opt[Unit]("mock-decision") action { (x, c) =>
         c.copy(mockDecision = true)
       } text (s"Flag to indicate that the coordinator should not pass the work to workers, " +
-          "but just return a mock decision to the client immediately.")     
-      
+        "but just return a mock decision to the client immediately.")
+
       opt[Unit]("mock-evaluation") action { (x, c) =>
         c.copy(mockEvaluation = true)
-      } text (s"Flag to indicate that the coordinator should pass the work to workers, " + 
-          "but that these workers should not evaluate the actual policy and just return a mock decision " +
-          "to the coordinator immediately. This option is ignored if --mock-desision is set as well, since " +
-          "the request will never reach the workers.") 
-      
+      } text (s"Flag to indicate that the coordinator should pass the work to workers, " +
+        "but that these workers should not evaluate the actual policy and just return a mock decision " +
+        "to the coordinator immediately. This option is ignored if --mock-desision is set as well, since " +
+        "the request will never reach the workers.")
+
       opt[Int]("mock-evaluation-duration") action { (x, c) =>
         c.copy(mockEvaluationDuration = x)
-      } text ("The duration of a mock evaluation in ms. Default: 0ms. Only used when --mock-evaluation-duration is set.") 
+      } text ("The duration of a mock evaluation in ms. Default: 0ms. Only used when --mock-evaluation-duration is set.")
 
       help("help") text ("prints this usage text")
     }
@@ -145,22 +150,22 @@ object DistributedCoordinatorApp {
       val cfg = new Config()
       cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
       cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
-      if(config.otherCoordinatorIP != "not-provided") {
-    	  cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.otherCoordinatorIP)
-    	  println(s"Added other coordinator at ${config.otherCoordinatorIP} to Hazelcast config")
+      if (config.otherCoordinatorIP != "not-provided") {
+        cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.otherCoordinatorIP)
+        println(s"Added other coordinator at ${config.otherCoordinatorIP} to Hazelcast config")
       }
-      if(config.databaseType == "hazelcast") {
-      val mapCfg = new MapConfig("stapl-attributes")
-	      mapCfg.setMapStoreConfig(new MapStoreConfig()
-	        .setEnabled(true)
-	        .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-	      cfg.addMapConfig(mapCfg)        
+      if (config.databaseType == "hazelcast") {
+        val mapCfg = new MapConfig("stapl-attributes")
+        mapCfg.setMapStoreConfig(new MapStoreConfig()
+          .setEnabled(true)
+          .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
+        cfg.addMapConfig(mapCfg)
       }
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
       // set up the database
       val pool: AttributeDatabaseConnectionPool = config.databaseType match {
         case "hazelcast" => new HazelcastAttributeDatabaseConnectionPool(hazelcast)
-        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")          
+        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
       }
       // set up the coordinator manager
       val coordinatorManager = new DistributedCoordinatorManager(hazelcast, system)
@@ -168,19 +173,19 @@ object DistributedCoordinatorApp {
       val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
 
       // set up the coordinator
-      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], coordinatorId, policies(config.policy), 
-    		  config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager, 
-    		  config.enableStatsIn, config.enableStatsOut, config.enableStatsWorkers, config.enableStatsDb,
-    		  config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
-      
+      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], coordinatorId, policies(config.policy),
+        config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager,
+        config.enableStatsIn, config.enableStatsOut, config.statsOutInterval, config.enableStatsWorkers, config.enableStatsDb,
+        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
+
       // register the coordinator
-      coordinatorManager.register(config.ip,config.port)
+      coordinatorManager.register(config.ip, config.port)
 
       var mockString = "";
-      if(config.mockDecision) {
+      if (config.mockDecision) {
         mockString = ", mocking decision"
-      } else if(config.mockEvaluation) {
-        mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}"
+      } else if (config.mockEvaluation) {
+        mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}ms"
       }
       println(s"DistributedCoordinator #$coordinatorId up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
     } getOrElse {

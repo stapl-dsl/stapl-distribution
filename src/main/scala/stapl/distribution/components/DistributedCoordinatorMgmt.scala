@@ -142,7 +142,7 @@ class RemoteDistributedCoordinatorGroup(hazelcast: HazelcastInstance, actorSyste
     implicit val dispatcher = actorSystem.dispatcher
     val coordinator = Await.result(selection.resolveOne(3.seconds), 5.seconds)
     coordinators += coordinator
-    println(s"Found and added coordinator at $x")
+    info(s"Found and added coordinator at $x")
   }
 
   /**
