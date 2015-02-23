@@ -11,8 +11,8 @@ object ResetDBApp extends App with Logging {
   info("Resetting databases")
   db.cleanStart
   info("Persisting entity data")
-  stapl.distribution.db.entities.ehealth.EntityManager().persist(db)
-  stapl.distribution.db.entities.concurrency.EntityManager().persist(db)
+  stapl.distribution.db.entities.ehealth.EhealthEntityManager().persist(db)
+  stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager().persist(db)
   db.commit
   db.close
   info("Done")

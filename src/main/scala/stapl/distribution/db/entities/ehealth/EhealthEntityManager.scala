@@ -16,15 +16,16 @@ import stapl.distribution.db.entities.ResourceEntity
 import stapl.distribution.db.entities.ResourceEntity
 import stapl.distribution.db.entities.ResourceEntity
 import scala.util.Random
+import stapl.distribution.db.entities.EntityManager
 
-object EntityManager {
-  def apply() = new EntityManager()
+object EhealthEntityManager {
+  def apply() = new EhealthEntityManager()
 }
-class EntityManager extends Logging {
+class EhealthEntityManager extends EntityManager with Logging {
 
-  val entities = scala.collection.mutable.Map[String, Entity]()
-  val subjects = scala.collection.mutable.Map[String, SubjectEntity]()
-  val resources = scala.collection.mutable.Map[String, ResourceEntity]()
+  override val entities = scala.collection.mutable.Map[String, Entity]()
+  override val subjects = scala.collection.mutable.Map[String, SubjectEntity]()
+  override val resources = scala.collection.mutable.Map[String, ResourceEntity]()
 
   private val CARDIOLOGY = "cardiology"
   private val ELDER_CARE = "elder_care"
@@ -196,36 +197,6 @@ class EntityManager extends Logging {
    * ENTITY STORE
    * ********************************
    */
-
-  def getEntity(id: String) = entities.get(id)
-  
-  def randomEntity() = {
-    val keys = entities.keySet
-    val random = keys.toVector(Random.nextInt(keys.size))
-    entities(random)
-  }
-  
-  def randomSubject() = {
-    val keys = subjects.keySet
-    val random = keys.toVector(Random.nextInt(keys.size))
-    subjects(random)
-  }
-  
-  def randomResource() = {
-    val keys = resources.keySet
-    val random = keys.toVector(Random.nextInt(keys.size))
-    resources(random)
-  }
-
-  def storeEntity(e: Entity) = {
-    if (entities.contains(e.id)) {
-      error("Duplicate entity id found: " + e.id)
-      throw new RuntimeException(s"Duplicate entity id found: ${e.id}")
-    }
-    entities.put(e.id, e)
-    if(e.isInstanceOf[SubjectEntity]) subjects.put(e.id, e.asInstanceOf[SubjectEntity])
-    if(e.isInstanceOf[ResourceEntity]) resources.put(e.id, e.asInstanceOf[ResourceEntity])
-  }
 
   def createNondischargedPatient(id: String, isAllowedToAccessPMS: Boolean) = {
     val result = new Patient(id, isAllowedToAccessPMS)

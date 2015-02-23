@@ -33,8 +33,8 @@ object SequentialClientForConcurrentCoordinatorsApp {
     
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
     
-    val ehealthEM = stapl.distribution.db.entities.ehealth.EntityManager()
-    val concEM = stapl.distribution.db.entities.concurrency.EntityManager()
+    val ehealthEM = stapl.distribution.db.entities.ehealth.EhealthEntityManager()
+    val concEM = stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager()
     
     val parser = new scopt.OptionParser[SequentialClientForConcurrentCoordinatorsConfig]("scopt") {
       head("STAPL - coordinator")

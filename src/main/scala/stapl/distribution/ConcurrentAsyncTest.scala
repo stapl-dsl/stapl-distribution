@@ -5,7 +5,7 @@ import stapl.examples.policies.EhealthPolicy
 import stapl.core.pdp.EvaluationCtx
 import stapl.core.pdp.BasicEvaluationCtx
 import stapl.core.pdp.RequestCtx
-import stapl.distribution.db.entities.ehealth.EntityManager
+import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.core.pdp.AttributeFinder
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 import stapl.distribution.db.DatabaseAttributeFinderModule
@@ -25,7 +25,7 @@ object ConcurrentAsyncTest extends App {
 
   val pdp = new PDP(naturalPolicy)
 
-  val em = EntityManager()
+  val em = new EhealthEntityManager()
 
   val username = "root"
   val password = "root"

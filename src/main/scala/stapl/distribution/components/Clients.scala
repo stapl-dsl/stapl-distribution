@@ -18,11 +18,12 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import util.control.Breaks._
-import stapl.distribution.db.entities.ehealth.EntityManager
+import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.components.ClientCoordinatorProtocol._
 import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.Counter
+import stapl.distribution.db.entities.EntityManager
 
 class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
@@ -33,8 +34,6 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
 
   val timer = new Timer
   var counter = 0
-
-  val em = EntityManager()
 
   def sendRequest = {
     timer.time {
@@ -74,7 +73,7 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
     case Go(nb) => // launch a test of 100 messages 
       breakable {
         if (nb == 0) {
-          // infinte loop
+          // infinite loop
           while (true) {
             sendRequest
           }
@@ -91,7 +90,8 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
   log.info(s"Sequential client created: $this")
 }
 
-class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, stats: ActorRef) extends Actor with ActorLogging {
+class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, 
+    em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
 
@@ -99,8 +99,6 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   implicit val ec = context.dispatcher
 
   val timer = new Timer
-
-  val em = EntityManager()
 
   def sendRequest = {
     timer.time {
@@ -156,7 +154,8 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   log.info(s"Sequential client created: $this")
 }
 
-class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup, stats: ActorRef) extends Actor with ActorLogging {
+class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup, 
+    em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
 
@@ -164,8 +163,6 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup, stats:
   implicit val ec = context.dispatcher
 
   val timer = new Timer
-
-  val em = EntityManager()
 
   val coordinatorCounter = new Counter("Different coordinators", 10000)
 
@@ -223,7 +220,8 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup, stats:
   log.info(s"Sequential client created: $this")
 }
 
-class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with ActorLogging {
+class InitialPeakClient(coordinator: ActorRef, nb: Int,  
+    em: EntityManager) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -234,13 +232,11 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with Actor
   val timer = new Timer
   var waitingFor = nb
 
-  val em = EntityManager()
-
   def receive = {
     case "go" =>
       timer.start
       for (i <- 1 to nb) {
-        val f = coordinator ! AuthorizationRequest(em.maarten.id, "view", em.maartenStatus.id)
+        val f = coordinator ! AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
@@ -254,7 +250,8 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int) extends Actor with Actor
   log.info(s"Intial peak client created: $this")
 }
 
-class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int, stats: ActorRef) extends Actor with ActorLogging {
+class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int,  
+    em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -264,8 +261,6 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
 
   val timer = new Timer
   var waitingFor = nb
-
-  val em = EntityManager()
 
   def receive = {
     case "go" =>
@@ -289,7 +284,8 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
   log.info(s"Intial peak client created: $this")
 }
 
-class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
+class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup,  
+    em: EntityManager, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -299,8 +295,6 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
   val timer = new Timer
   var waitingFor = nbRequests
   var peaksToDo = if (nbPeaks == 0) Double.PositiveInfinity else nbPeaks
-
-  val em = EntityManager()
 
   val coordinatorCounter = new Counter("Different coordinators", 10000)
 
@@ -339,14 +333,13 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
 /**
  * A simple client for testing that only sends a request when the user indicates this.
  */
-class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup) extends Actor with ActorLogging {
+class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,  
+    em: EntityManager) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
 
   implicit val ec = context.dispatcher
-
-  val em = EntityManager()
 
   val coordinatorCounter = new Counter("Different coordinators", 10000)
 

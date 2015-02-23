@@ -1,6 +1,6 @@
 package stapl.distribution
 
-import stapl.distribution.db.entities.ehealth.EntityManager
+import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import collection.mutable.{ HashMap, MultiMap, Set }
 import stapl.distribution.util.Counter
 import stapl.core.SUBJECT
@@ -10,7 +10,7 @@ object HashTest extends App {
   
   val nbWorkers = 5
   
-  val em = EntityManager()
+  val em = new EhealthEntityManager()
   
   var counter = new Counter("Hashes - subjects", 10000)
   

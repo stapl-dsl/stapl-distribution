@@ -4,11 +4,13 @@ import org.joda.time.LocalDateTime
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.distribution.db.entities.Entity
 import stapl.distribution.policies.ConcurrencyPolicies
+import stapl.distribution.db.entities.SubjectEntity
+import stapl.distribution.db.entities.ResourceEntity
 
-class Subject(id: String, val attribute1: String, val attribute2: String, val attribute3: String,
+class ConcurrencySubject(id: String, val attribute1: String, val attribute2: String, val attribute3: String,
   val attribute4: String, val attribute5: String, val attribute6: String, val attribute7: String, 
   val attribute8: String, val attribute9: String, val attribute10: String,
-  val history: List[String]) extends Entity(id) {
+  val history: List[String]) extends SubjectEntity(id) {
 
   override def persist(db: AttributeDatabaseConnection) = {
     db.storeAttribute(id, ConcurrencyPolicies.subject.attribute1, attribute1)
@@ -25,7 +27,7 @@ class Subject(id: String, val attribute1: String, val attribute2: String, val at
   }
 }
 
-class Resource(id: String, val owner: String, val nbAccesses: Int) extends Entity(id) {
+class ConcurrencyResource(id: String, val owner: String, val nbAccesses: Int) extends ResourceEntity(id) {
     
   override def persist(db: AttributeDatabaseConnection) {
     db.storeAttribute(id, ConcurrencyPolicies.resource.owner, owner)

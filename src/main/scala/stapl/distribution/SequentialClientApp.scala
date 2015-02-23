@@ -26,11 +26,9 @@ case class SequentialClientConfig(name: String = "not-provided",
   nbThreads: Int = -1, nbRequests: Int = -1, policy: String = "not-provided")
 
 object SequentialClientApp {
-  def main(args: Array[String]) {
-    
-    
-    val ehealthEM = stapl.distribution.db.entities.ehealth.EntityManager()
-    val concEM = stapl.distribution.db.entities.concurrency.EntityManager()
+  def main(args: Array[String]) {    
+    val ehealthEM = stapl.distribution.db.entities.ehealth.EhealthEntityManager()
+    val concEM = stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager()
     val policies = Map(
         "ehealth" -> AuthorizationRequest(ehealthEM.maarten.id, "view", ehealthEM.maartenStatus.id), 
         "count" -> AuthorizationRequest(concEM.subject1.id, "blabla", concEM.resourceOfBank1.id))

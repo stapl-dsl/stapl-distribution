@@ -10,7 +10,7 @@ import stapl.core.pdp.EvaluationCtx
 import org.joda.time.LocalDateTime
 import stapl.core._
 import stapl.core.Attribute
-import stapl.distribution.db.entities.concurrency.EntityManager
+import stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager
 import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.core.pdp.AttributeFinder
 import stapl.distribution.db.DatabaseAttributeFinderModule
@@ -24,7 +24,7 @@ import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 
 class ConcurrencyPoliciesTest extends AssertionsForJUnit {
 
-  val em = EntityManager()
+  val em = ConcurrencyEntityManager()
   val maxNbAccessessPDP = new PDP(ConcurrencyPolicies.maxNbAccess)
   val chineseWallPDP = new PDP(ConcurrencyPolicies.chineseWall)
 

@@ -11,15 +11,13 @@ import stapl.core.Deny
 import stapl.core.Decision
 import stapl.distribution.db.entities.DateHelper
 import stapl.distribution.db.entities.Entity
+import stapl.distribution.db.entities.EntityManager
 
-object EntityManager {
-  def apply() = new EntityManager()
+object ConcurrencyEntityManager {
+  def apply() = new ConcurrencyEntityManager()
 }
-class EntityManager extends Logging {
-
-  val entities = scala.collection.mutable.Map[String, Entity]()
-  val resources = scala.collection.mutable.ListBuffer[Resource]()
-  val subjects = scala.collection.mutable.ListBuffer[Subject]()
+class ConcurrencyEntityManager extends EntityManager with Logging {
+  
   val bank1 = "bank1"
   val bank2 = "bank2"
   val owners = List(bank1, bank2)
@@ -40,27 +38,15 @@ class EntityManager extends Logging {
    * ********************************
    */
 
-  def getEntity(id: String) = entities.get(id)
-
-  def storeEntity(e: Entity) = {
-    if (entities.contains(e.id)) {
-      error("Duplicate entity id found: " + e.id)
-      throw new RuntimeException(s"Duplicate entity id found: ${e.id}")
-    }
-    entities.put(e.id, e)
-  }
-
   def createSubject(id: String) = {
-    val result = new Subject(id, "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", List())
+    val result = new ConcurrencySubject(id, "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", "a-value", List())
     storeEntity(result)
-    subjects += result
     result
   }
 
   def createResource(id: String, owner: String) = {
-    val result = new Resource(id, owner, 0)
+    val result = new ConcurrencyResource(id, owner, 0)
     storeEntity(result)
-    resources += result
     result
   }
 
