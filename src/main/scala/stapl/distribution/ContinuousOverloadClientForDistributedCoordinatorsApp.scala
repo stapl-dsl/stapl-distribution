@@ -25,17 +25,22 @@ import stapl.distribution.components.RemoteDistributedCoordinatorGroup
 import stapl.distribution.util.StatisticsActor
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
+import stapl.distribution.db.entities.ehealth.EhealthEntityManager
+import stapl.distribution.db.entities.ArtificialEntityManager
 
 case class ContinuousOverloadClientForDistributedCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorIP: String = "not-provided",
   nbRequests: Int = -1, nbPeaks: Int = -1,
+  requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
   logLevel: String = "INFO", waitForGo: Boolean = false)
 
 object ContinuousOverloadClientForDistributedCoordinatorsApp {
   def main(args: Array[String]) {
       
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
+
+    val requests = List("ehealth", "artificial")
     
     val parser = new scopt.OptionParser[ContinuousOverloadClientForDistributedCoordinatorConfig]("scopt") {
       head("STAPL - Continuous Overload Client")
@@ -63,6 +68,21 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       opt[Int]("nb-peaks") required () action { (x, c) =>
         c.copy(nbPeaks = x)
       } text ("The number of peaks to perform. 0 for infinity")
+
+      opt[String]("request-pool") action { (x, c) =>
+        c.copy(requestPool = x)
+      } validate { x =>
+        if (requests.contains(x)) success else failure(s"Invalid value given for --requests. Possible values: $requests")
+      } text (s"The type of requests to send out. Possible values: ehealth = send out random requests from the ehealth entities, " + 
+          "artificial = send out random requests from a set of artificial entities of chosen size")
+
+      opt[Int]("nb-artificial-subjects") action { (x, c) =>
+        c.copy(nbArtificialSubjects = x)
+      } text ("The number of artificial subjects to be used for generating the random requests. Default: 1000. Only used when --request-pool == artificial.")
+
+      opt[Int]("nb-artificial-resources") action { (x, c) =>
+        c.copy(nbArtificialResources = x)
+      } text ("The number of artificial resources to be used for generating the random requests. Default: 1000. Only used when --request-pool == artificial.")
       
       opt[String]("log-level") action { (x, c) =>
         c.copy(logLevel = x)
@@ -93,12 +113,16 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
 
       val coordinators = new RemoteDistributedCoordinatorGroup(hazelcast, system)
+      val em = config.requestPool match {
+        case "ehealth" => EhealthEntityManager()
+        case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
+      }
       val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",2000,10))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
-      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, config.nbRequests, config.nbPeaks / 2, stats), "client1")
-      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, config.nbRequests, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
+      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, em, config.nbRequests, config.nbPeaks / 2, stats), "client1")
+      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, em, config.nbRequests, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
       
       if(coordinators.coordinators.size == 0) {
         println("No coordinators found, shutting down")
@@ -107,7 +131,7 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
         return
       }
       
-      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
       if(config.waitForGo) {
         println("Press any key to start generating load")
         Console.readLine()
