@@ -272,6 +272,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
+      println("decision receive")
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
       log.debug(s"Waiting for: $waitingFor")
       if (waitingFor == 0) {
@@ -281,7 +282,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
     case x => log.error(s"Received unknown message: $x")
   }
 
-  log.info(s"Intial peak client created: $this")
+  //log.info(s"Intial peak client created: $this")
 }
 
 class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup,  

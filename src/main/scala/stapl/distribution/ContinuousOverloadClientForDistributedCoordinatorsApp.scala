@@ -33,7 +33,7 @@ case class ContinuousOverloadClientForDistributedCoordinatorConfig(name: String 
   coordinatorIP: String = "not-provided",
   nbRequests: Int = -1, nbPeaks: Int = -1,
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
-  logLevel: String = "INFO", waitForGo: Boolean = false)
+  statsInterval: Int = 2000, logLevel: String = "INFO", waitForGo: Boolean = false)
 
 object ContinuousOverloadClientForDistributedCoordinatorsApp {
   def main(args: Array[String]) {
@@ -93,6 +93,10 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       opt[Unit]("wait-for-go") action { (x, c) =>
         c.copy(waitForGo = true)
       } text ("Flag to indicate that the client should wait for user input to start generating load.")
+
+      opt[Int]("stats-interval") action { (x, c) =>
+        c.copy(statsInterval = x)
+      } text ("The interval on which to report stats, in number of requests. Default: 2000.")
       
       help("help") text ("prints this usage text")
     }
@@ -117,7 +121,7 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",2000,10))
+      val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",config.statsInterval,10))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
