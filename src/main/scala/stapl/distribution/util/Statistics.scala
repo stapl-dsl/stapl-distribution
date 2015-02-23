@@ -351,21 +351,23 @@ class LatencyStatistics(name: String = "Anonymous timer", intervalSize: Int = 10
 /**
  *
  */
-class Counter(name: String, intervalSize: Int = 1000) {
+class Counter(name: String, intervalSize: Int = 1000, enabled: Boolean = true) {
 
   val counts = scala.collection.mutable.Map[Any, Int]()
 
   var leftInThisInterval = intervalSize
 
   def count(key: Any) {
-    if (counts.contains(key)) {
-      counts(key) = counts(key) + 1
-    } else {
-      counts(key) = 1
-    }
-    leftInThisInterval -= 1
-    if (leftInThisInterval == 0) {
-      print
+    if (enabled) {
+      if (counts.contains(key)) {
+        counts(key) = counts(key) + 1
+      } else {
+        counts(key) = 1
+      }
+      leftInThisInterval -= 1
+      if (leftInThisInterval == 0) {
+        print
+      }
     }
   }
 

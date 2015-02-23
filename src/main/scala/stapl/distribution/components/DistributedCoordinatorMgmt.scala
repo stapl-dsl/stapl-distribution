@@ -123,6 +123,8 @@ class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actor
  * A client for a distributed coordinator group on one or multiple other nodes. This client
  * fetches the concurrent coordinators on that node and sends authorization requests to the appropriate
  * coordinator on that node (this is the coordinator that manages the subject of the request).
+ * 
+ * FIXME there seems to be a race condition here: the order is not the same on every node every time...
  */
 class RemoteDistributedCoordinatorGroup(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
   extends CoordinatorGroup with CoordinatorLocater with Logging {

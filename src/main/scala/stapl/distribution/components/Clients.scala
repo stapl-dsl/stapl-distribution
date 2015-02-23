@@ -164,7 +164,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
 
   val timer = new Timer
 
-  val coordinatorCounter = new Counter("Different coordinators", 10000)
+  val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
   def sendRequest = {
     timer.time {
@@ -297,7 +297,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
   var waitingFor = nbRequests
   var peaksToDo = if (nbPeaks == 0) Double.PositiveInfinity else nbPeaks
 
-  val coordinatorCounter = new Counter("Different coordinators", 10000)
+  val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
   def receive = {
     case "go" =>
@@ -342,7 +342,7 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
 
   implicit val ec = context.dispatcher
 
-  val coordinatorCounter = new Counter("Different coordinators", 10000)
+  val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
   def sendRequest() = {
     println("Provide the number of requests to send (default: 1)")
