@@ -306,9 +306,8 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             val original = id2original(id)
             val updated = concurrencyController.startForSubject(original)
             // ask the other coordinator to restart as well. This coordinator will 
-            // start the actual evaluation (but the result will be sent to us).
-            // This coordinator also already contain
-            coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
+            // redo the actual evaluation (but the result will be sent to us).
+            coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
           }
         case x =>
           // this should never happen
@@ -391,7 +390,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
       val updated = concurrencyController.restartForSubject(original)
       // ask the other coordinator to restart as well. This coordinator will 
       // start the actual evaluation (but the result will be sent to us)
-      coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
+      coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
 
     /**
      * An update worker has finished an update.

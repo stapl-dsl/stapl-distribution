@@ -387,6 +387,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
           case x => log.debug(s"[Evaluation ${id}] For now, we can only process attribute changes. Given ObligationAction: $x")
         }
       }
+      // do not clean up yet because the commit can still fail at the coordinator that manages the resource
       true
     } else {
       cleanUp(id)
@@ -424,7 +425,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
           case x => log.debug(s"For now, we can only process attribute changes. Given ObligationAction: $x")
         }
       }
-      // remove the evaluation from the administration
+      // remove the evaluation from the administration (this is possible because the coordinator
+      // that manages the subject will only have contacted us if the subject side can be committed)
       cleanUp(id)
       // return
       true
@@ -790,9 +792,8 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
             val original = id2original(id)
             val updated = concurrencyController.startForSubject(original)
             // ask the other coordinator to restart as well. This coordinator will 
-            // start the actual evaluation (but the result will be sent to us).
-            // This coordinator also already contain
-            coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
+            // redo the actual evaluation (but the result will be sent to us).
+            coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
           }
         case x =>
           // this should never happen
@@ -875,7 +876,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       val updated = concurrencyController.restartForSubject(original)
       // ask the other coordinator to restart as well. This coordinator will 
       // start the actual evaluation (but the result will be sent to us)
-      coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
+      coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
 
     /**
      * An update worker has finished an update.
