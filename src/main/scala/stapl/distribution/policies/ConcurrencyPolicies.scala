@@ -9,6 +9,7 @@ object ConcurrencyPolicies extends BasicPolicy {
   resource.owner = SimpleAttribute(String)
   // some attributes on which we will have contention
   resource.nbAccesses = SimpleAttribute(Number)
+  subject.nbAccesses = SimpleAttribute(Number)
   subject.history = ListAttribute(String)
   // some attributes to fill up time
   subject.attribute1 = SimpleAttribute(String)
@@ -35,6 +36,16 @@ object ConcurrencyPolicies extends BasicPolicy {
       Rule("check-attribute-10") := deny iff (subject.attribute10 == "somethingthatdoesnotexist"),
       Rule("deny") := deny iff (resource.nbAccesses gteq 5),
       Rule("permit") := permit performing (update(resource.nbAccesses, resource.nbAccesses + 1))
+  ) 
+  
+  val max1ResourceAccess = Policy("max-1-resource-access") := apply(DenyOverrides) to (
+      Rule("deny") := deny iff (resource.nbAccesses gteq 1),
+      Rule("permit") := permit performing (update(resource.nbAccesses, resource.nbAccesses + 1))
+  ) 
+  
+  val max1SubjectAccess = Policy("max-1-subject-access") := apply(DenyOverrides) to (
+      Rule("deny") := deny iff (subject.nbAccesses gteq 1),
+      Rule("permit") := permit performing (update(subject.nbAccesses, subject.nbAccesses + 1))
   ) 
   
   val chineseWall = Policy("chinese-wall") := apply(DenyOverrides) to (

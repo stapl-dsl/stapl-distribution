@@ -52,7 +52,7 @@ trait CoordinatorLocater extends Logging {
    * given subject.
    */
   def getCoordinatorForSubject(entityId: String) = {
-    val key = SUBJECT + ":" + entityId
+    val key = "SUBJECT:" + entityId
     val hash = Math.abs(key.hashCode())
     val i = hash % coordinators.size
     val coordinator = coordinators(i) 
@@ -65,9 +65,17 @@ trait CoordinatorLocater extends Logging {
    * given subject.
    */
   def getCoordinatorForResource(entityId: String) = {
-    val key = RESOURCE + ":" + entityId
+    val key = "RESOURCE:" + entityId
     val hash = Math.abs(key.hashCode())
     coordinators(hash % coordinators.size)
+  }
+
+  /**
+   * Sends the given request to the coordinator responsible for managing
+   * the subject of this request.
+   */
+  def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
+    getCoordinatorForSubject(request.subjectId)
   }
 
   /**
@@ -79,9 +87,9 @@ trait CoordinatorLocater extends Logging {
     if (coordinatorForSubject == coordinator && coordinatorForResource == coordinator) {
       BOTH
     } else if (coordinatorForSubject == coordinator) {
-      SUBJECT
+      ONLY_SUBJECT
     } else if (coordinatorForResource == coordinator) {
-      RESOURCE
+      ONLY_RESOURCE
     } else {
       NOTHING
     }
@@ -163,13 +171,5 @@ class RemoteConcurrentCoordinatorGroup(actorSystem: ActorSystem, ip: String, por
       debug(s"Found coordinator manager at $ip:$port with ${cs.size} coordinators")
     case x =>
       error(s"Unknown message received: $x")
-  }
-
-  /**
-   * Sends the given request to the coordinator responsible for managing
-   * the subject of this request.
-   */
-  override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
-    getCoordinatorForSubject(request.subjectId)
   }
 }

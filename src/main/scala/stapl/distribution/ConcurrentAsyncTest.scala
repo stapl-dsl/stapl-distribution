@@ -45,16 +45,18 @@ object ConcurrentAsyncTest extends App {
       finder, new RemoteEvaluator)
 
 //    println(pdp.evaluate(ctx))
+    
+    ???
 
-    pdp.evaluateAsync(ctx).onComplete({ x => 
-      conn.close
-      x match {
-        case Success(r) => println(s"success: $r")
-        case Failure(e) =>
-          println(s"failure: $e")
-          e.printStackTrace()
-      }
-    })
+//    pdp.evaluateAsync(ctx).onComplete({ x => 
+//      conn.close
+//      x match {
+//        case Success(r) => println(s"success: $r")
+//        case Failure(e) =>
+//          println(s"failure: $e")
+//          e.printStackTrace()
+//      }
+//    })
 
     //    implicit val timeout = Timeout(2 seconds)
     //    

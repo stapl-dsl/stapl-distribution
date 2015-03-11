@@ -18,7 +18,7 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.SequentialClientForConcurrentCoordinators
-import stapl.distribution.components.RemoteDistributedCoordinatorGroup
+import stapl.distribution.components.HazelcastRemoteDistributedCoordinatorGroup
 import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
 import stapl.distribution.util.StatisticsActor
 import com.hazelcast.config.Config
@@ -121,7 +121,7 @@ object SequentialClientForDistributedCoordinatorsApp {
       cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
 
-      val coordinators = new RemoteDistributedCoordinatorGroup(hazelcast, system)
+      val coordinators = new HazelcastRemoteDistributedCoordinatorGroup(hazelcast, system)
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)

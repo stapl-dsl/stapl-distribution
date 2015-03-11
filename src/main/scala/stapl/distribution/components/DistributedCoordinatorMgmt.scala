@@ -40,14 +40,11 @@ abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
     // FIXME dit klopt niet meer
     val selection = actorSystem.actorSelection(s"akka.tcp://STAPL-coordinator@$ip:$port/user/coordinator")
     implicit val dispatcher = actorSystem.dispatcher
-    selection.resolveOne(3.seconds).onComplete {
-      case Success(coordinator) =>
-        coordinators += coordinator
-        println(s"Found and added coordinator at $x")
-      case Failure(t) =>
-        println(s"Did not find coordinator at $x: ")
-        t.printStackTrace()
-    }
+    val coordinator = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+    coordinators += coordinator
+    println(s"Found and added coordinator at $x")
+    //        println(s"Did not find coordinator at $x: ")
+    //        t.printStackTrace()
   }
 
 }
@@ -108,14 +105,26 @@ class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actor
 
   /**
    * Sends the given request to the coordinator responsible for managing
-   * either the subject or resource of this request. The final coordinator
-   * is chosen at random in order to divide the requests approximately evenly.
+   * the subject of this request.
    */
   override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
-    Random.nextBoolean match {
-      case true => getCoordinatorForSubject(request.subjectId)
-      case false => getCoordinatorForResource(request.resourceId)
-    }
+    getCoordinatorForSubject(request.subjectId)
+  }
+}
+
+/**
+ *
+ */
+class HardcodedDistributedCoordinatorManager(actorSystem: ActorSystem, coordinators: (String, Int)*)
+  extends DistributedCoordinatorManager(actorSystem) {
+
+  /**
+   * Initiaze the ActorRefs (only now will the IP and ports be mapped to ActorRefs,
+   * do this after the remote Actors are up and running).
+   */
+  def initialize() {
+    coordinators.foreach(location =>
+      addCoordinator(location))
   }
 }
 
@@ -123,10 +132,10 @@ class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actor
  * A client for a distributed coordinator group on one or multiple other nodes. This client
  * fetches the concurrent coordinators on that node and sends authorization requests to the appropriate
  * coordinator on that node (this is the coordinator that manages the subject of the request).
- * 
+ *
  * FIXME there seems to be a race condition here: the order is not the same on every node every time...
  */
-class RemoteDistributedCoordinatorGroup(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
+class HazelcastRemoteDistributedCoordinatorGroup(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
   extends CoordinatorGroup with CoordinatorLocater with Logging {
 
   import scala.collection.JavaConversions._

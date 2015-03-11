@@ -159,8 +159,8 @@ class ForemanManager extends Actor with ActorLogging {
  * BOTH or NOTHING.
  */
 sealed trait Managed extends Exception // extends Exception so that we can return it in Failure
-case object SUBJECT extends Managed
-case object RESOURCE extends Managed
+case object ONLY_SUBJECT extends Managed
+case object ONLY_RESOURCE extends Managed
 case object BOTH extends Managed
 case object NOTHING extends Managed
 
@@ -501,6 +501,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
           // but reset the list of updates while evaluation so that it can finish 
           // correctly the next time
           updatesWhileEvaluating(id) = ListBuffer()
+          log.debug(s"[Evaluation ${result.id}] Found a conflicting attribute update for $attribute")
           return false
         }
     }
@@ -676,7 +677,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
           val updated = concurrencyController.startForBoth(original)
           // forward the updated request to our foreman manager 
           foremanManager ! Enqueue(updated, self)
-        case SUBJECT =>
+        case ONLY_SUBJECT =>
           log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
           val updated = concurrencyController.startForSubject(original)
           // ask the other coordinator to start the actual evaluation 
@@ -752,13 +753,13 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
             log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for BOTH")
             // the commit failed => restart the evaluation (add the necessary
             // attributes to the original again)
-            log.warning(s"The commit for request $id failed for BOTH, restarting it")
+            log.warning(s"The commit for request $id FAILED for BOTH, restarting it")
             // note: the concurrency controller will have already cleaned up its state
             // in the commitForBoth() method
             val updated = concurrencyController.startForBoth(original)
             foremanManager ! Enqueue(updated, self)
           }
-        case SUBJECT =>
+        case ONLY_SUBJECT =>
           // try to commit for the subject
           if (concurrencyController.commitForSubject(result)) {
             log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the SUBJECT")

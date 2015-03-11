@@ -184,13 +184,13 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
         // clients, we could forward the request to the appropriate coordinator.
         coordinatorManager.whatShouldIManage(self, original) match {
           case BOTH =>
-            log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client. (I should manage both => queuing it immediately)")
+            log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage both => queuing it immediately)")
             // add the attributes according to our administration
             val updated = concurrencyController.startForBoth(original)
             // forward the updated request to one of our workers
             externalWorkQ.enqueue((updated, self))
             notifyWorkers
-          case SUBJECT =>
+          case ONLY_SUBJECT =>
             log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
             val updated = concurrencyController.startForSubject(original)
             // ask the other coordinator to start the actual evaluation 
@@ -210,7 +210,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
      */
     case ManageResourceAndStartEvaluation(updatedRequest) =>
       // log
-      log.debug(s"[Evaluation #${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
+      log.debug(s"[Evaluation ${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
       // add the attributes according to our own administration
       val updatedAgain = concurrencyController.startForResource(updatedRequest)
       // forward the request to one of our workers
@@ -266,20 +266,19 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             clients.remove(id)
             outputStats.tick
           } else {
-            log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for BOTH")
+            log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for BOTH, restarting it")
             // the commit failed => restart the evaluation (add the necessary
             // attributes to the original again)
-            log.warning(s"The commit for request $id failed for BOTH, restarting it")
             // note: the concurrency controller will have already cleaned up its state
             // in the commitForBoth() method
             val updated = concurrencyController.startForBoth(original)
             externalWorkQ.enqueue((updated, self))
             notifyWorkers
           }
-        case SUBJECT =>
+        case ONLY_SUBJECT =>
           // try to commit for the subject
           if (concurrencyController.commitForSubject(result)) {
-            log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the SUBJECT")
+            log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the SUBJECT, checking with the other coordinator")
             // only forward the resource attribute updates, we have already processed the rest
             def isResourceChangeAttributeObligationAction(x: ConcreteObligationAction): Boolean = {
               x match {
