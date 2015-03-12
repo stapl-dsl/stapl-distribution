@@ -15,29 +15,20 @@ import stapl.distribution.db.AttributeDatabaseConnection
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.Attribute
-import stapl.core.ConcreteChangeAttributeObligationAction
-import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.Update
 import stapl.core.Append
 import scala.collection.mutable.Set
 import scala.collection.mutable.MultiMap
 import scala.collection.mutable.HashMap
-import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.ConcreteValue
 import stapl.core.SUBJECT
 import stapl.core.RESOURCE
 import akka.event.LoggingAdapter
 import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.distribution.db.HazelcastAttributeDatabaseConnection
-import com.hazelcast.config.Config
 import stapl.distribution.db.AttributeMapStore
-import com.hazelcast.core.Hazelcast
-import com.hazelcast.core.IMap
 import stapl.core.AttributeContainerType
 import stapl.distribution.db.HazelcastAttributeDatabaseConnection
-import com.hazelcast.config.MapConfig
-import com.hazelcast.config.MapStoreConfig
-import com.hazelcast.core.HazelcastInstance
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.util.LatencyStatistics
 
@@ -402,51 +393,6 @@ class MockConcurrencyController(coordinator: ActorRef, updateWorkers: List[Actor
     // do nothing
   }
 }
-
-/**
- * Actor used for processing attribute updates asynchronously from the
- * coordinator. Every message sent to this UpdateWorker is handled sequentially
- * and blocking, so be sure to assign UpdateWorkers to separate threads.
- */
-class UpdateWorker(coordinator: ActorRef, db: AttributeDatabaseConnection) extends Actor with ActorLogging {
-  
-  log.debug(s"Start constructor of update worker $self")
-
-  val stats = new LatencyStatistics(s"UpdateWorker $self", 50, 10)
-
-  /**
-   * Note: we use the ObligationActions as messages.
-   */
-  def receive = {
-
-    /**
-     * Update an attribute value.
-     */
-    case update: ConcreteChangeAttributeObligationAction =>
-      log.debug(s"Starting attribute update: $update")
-      val ConcreteChangeAttributeObligationAction(entityId, attribute, value, changeType) = update
-      stats.time {
-        changeType match {
-          case Update => db.updateAnyAttribute(entityId, attribute, value.representation)
-          case Append => db.storeAnyAttribute(entityId, attribute, value.representation)
-        }
-      }
-      coordinator ! UpdateFinished(self)
-      log.debug(s"Finished attribute update: $update")
-
-    case "terminate" => context.stop(self)
-
-    case x => log.warning(s"Unknown message receiced: $x")
-  }
-  
-  log.debug(s"End constructor of update worker $self")
-
-}
-
-/**
- * For communication between the UpdateWorkers and the Coordinator.
- */
-case class UpdateFinished(updateWorker: ActorRef)
 
 /**
  * Class used for representing the Coordinator that manages all foremen

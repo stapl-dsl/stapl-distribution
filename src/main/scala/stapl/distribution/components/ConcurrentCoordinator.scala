@@ -217,12 +217,11 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   // we also keep an index of (entityId,attribute) -> (actorRef,nbOngoingUpdatesForThisAttribute)
   // for efficient search of the correct UpdateWorker to assign an update to
   private val update2worker = Map[(String, Attribute), (ActorRef, Int)]()
-
+  
   /**
-   * The ongoing updates per entityId.
+   * The store/cache of the updated attributes and/or ongoing attribute updates.
    */
-  private val subjectId2OngoingUpdates = new HashMap[String, Map[Attribute, ConcreteValue]]
-  private val resourceId2OngoingUpdates = new HashMap[String, Map[Attribute, ConcreteValue]]
+  private val updatedAttributeStore = new OngoingAttributeUpdatesStore
 
   /**
    * Indicates to the controller that the evaluation of the given
@@ -292,22 +291,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
    * this method will have added the necessary attributes for both.
    */
   private def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
-    var attributes = request.extraAttributes
-    // Note: subjectId2OngoingUpdates will only contain this request if
-    // we should also manage this request => this method can be used from
-    // both the subject-specific and resource-specific methods.
-    // Note: there will never be tentative updates for resource attributes
-    if (subjectId2OngoingUpdates.contains(request.subjectId)) {
-      val toAdd = subjectId2OngoingUpdates(request.subjectId).toSeq
-      attributes ++= toAdd
-      log.debug(s"[Evaluation ${request.id}] Added the following ongoing attributes because of ongoing updates on the SUBJECT: $toAdd")
-    }
-    if (resourceId2OngoingUpdates.contains(request.resourceId)) {
-      val toAdd = resourceId2OngoingUpdates(request.resourceId).toSeq
-      attributes ++= toAdd
-      log.debug(s"[Evaluation ${request.id}] Added the following ongoing attributes because of ongoing updates on the RESOURCE: $toAdd")
-    }
-    request.copy(extraAttributes = attributes)
+    updatedAttributeStore.addSuitableAttributes(request)
   }
 
   /**
@@ -549,16 +533,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // that the new update is assigned to the same update worker as
     // the previous update guarantees serial execution and that the second
     // update will be the final one
-    val target = update.attribute.cType match {
-      case stapl.core.SUBJECT => subjectId2OngoingUpdates
-      case stapl.core.RESOURCE => resourceId2OngoingUpdates
-      case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given container type: $x")
-    }
-    if (target.contains(update.entityId)) {
-      target(update.entityId)(update.attribute) = update.value
-    } else {
-      target(update.entityId) = Map(update.attribute -> update.value)
-    }
+    updatedAttributeStore.store(update)
     // send the update to a worker
     val key = (update.entityId, update.attribute)
     if (update2worker.contains(key)) {
@@ -602,23 +577,10 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     } else {
       update2worker(key) = (worker, count - 1)
     }
-    // also remove the ongoing update from the list of ongoing updates
-    // per attribute IF this has not been overwritten in the meanwhile
-    val target = finishedUpdate.attribute.cType match {
-      case stapl.core.SUBJECT => subjectId2OngoingUpdates
-      case stapl.core.RESOURCE => resourceId2OngoingUpdates
-      // no need to check the other cases, this has been checked when adding
-      // to ongoingUpdates
-    }
-    if (target.contains(finishedUpdate.entityId)) {
-      val values = target(finishedUpdate.entityId)
-      if (values.contains(finishedUpdate.attribute) && values(finishedUpdate.attribute) == finishedUpdate.value) {
-        values.remove(finishedUpdate.attribute)
-      }
-      if (values.isEmpty) {
-        target.remove(finishedUpdate.entityId)
-      }
-    }
+    // notify the updateAttributeStore that the update is finished.
+    // Depending on the implementation used, the store requires this information,
+    // for example to remove the ongoing update.
+    updatedAttributeStore.updateFinished(finishedUpdate)
   }
 }
 
