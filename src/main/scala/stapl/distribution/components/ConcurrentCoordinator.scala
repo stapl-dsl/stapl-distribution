@@ -207,6 +207,10 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
 
   /**
    * The queues of work of the UpdateWorkers.
+   * 
+   * This information is needed in order to be able to send consecutive attribute updates
+   * of the same attribute for the same entity to the same update worker for guaranteed
+   * sequentiality (i.e., to make sure that the last update is actually executed last).
    */
   private val ongoingUpdates = Map[ActorRef, Queue[ConcreteChangeAttributeObligationAction]]()
   updateWorkers foreach { ongoingUpdates(_) = Queue() }
