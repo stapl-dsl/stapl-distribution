@@ -196,18 +196,16 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
 
   /**
    * The lists of attributes that have been updated during a certain policy evaluation.
-   * 
+   *
    * Note: we only store attributes that can potentially be conflicting and for which we are
    * responsible. So if we only manage the SUBJECT of an evaluation, the list of attribute updates
    * will only contain updates that concern this SUBJECT.
-   *
-   * TODO probably, the best idea for the tentative updates is to store a state here: FINAL or TENTATIVE?
    */
   private val updatesWhileEvaluating = Map[String, ListBuffer[Attribute]]()
 
   /**
    * The queues of work of the UpdateWorkers.
-   * 
+   *
    * This information is needed in order to be able to send consecutive attribute updates
    * of the same attribute for the same entity to the same update worker for guaranteed
    * sequentiality (i.e., to make sure that the last update is actually executed last).
@@ -217,12 +215,18 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   // we also keep an index of (entityId,attribute) -> (actorRef,nbOngoingUpdatesForThisAttribute)
   // for efficient search of the correct UpdateWorker to assign an update to
   private val update2worker = Map[(String, Attribute), (ActorRef, Int)]()
-  
+
   /**
    * The store/cache of the updated attributes and/or ongoing attribute updates.
    */
   private val updatedAttributeStore = new UpdatedAttributeCache(1000)
   //private val updatedAttributeStore = new OngoingAttributeUpdatesStore
+
+  /**
+   * The list of evaluations that should be restarted because of having received
+   * tentative attribute updates of an evaluation that failed.
+   */
+  val evaluationsThatShouldBeRestarted = new ListBuffer[String]()
 
   /**
    * Indicates to the controller that the evaluation of the given
@@ -286,8 +290,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   }
 
   /**
-   * Adds the appropriate attributes to the given request. 
-   * 
+   * Adds the appropriate attributes to the given request.
+   *
    * Note: if we manage both the subject and the resource of this request,
    * this method will have added the necessary attributes for both.
    */
@@ -320,6 +324,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
         _ match {
           case change: ConcreteChangeAttributeObligationAction =>
             execute(change)
+            updatedAttributeStore.store(change)
             // also store the updates for ongoing evaluations with which
             // these can conflict. We should only store these for evaluations
             // that share the entityId
@@ -376,10 +381,11 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
                   // attribute in their attribute cache are restarted if this turned out to be
                   // reverted by the coordinator of the resource
                   updatesWhileEvaluating(x.id) += change.attribute
+                  updatedAttributeStore.storeTentative(request.id, change)
                   log.debug(s"[Evaluation ${id}] Stored the possibly conflicting attribute update TENTATIVELY for the SUBJECT with evaluation ${x.id}")
                 }
               case stapl.core.RESOURCE =>
-              	// Nothing to do, this attribute will be handled by the other coordinator
+              // Nothing to do, this attribute will be handled by the other coordinator
               case x => throw new IllegalArgumentException(s"For now, you can only update subject and resource attributes. Given container type: $x")
             }
           case x => log.debug(s"[Evaluation ${id}] For now, we can only process attribute changes. Given ObligationAction: $x")
@@ -411,9 +417,10 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
             // these can conflict. We should only store these for the RESOURCE
             change.attribute.cType match {
               case stapl.core.SUBJECT =>
-              	throw new IllegalArgumentException(s"The other coordinator should not forward SUBJECT attribute updates, but received one: $change")
+                throw new IllegalArgumentException(s"The other coordinator should not forward SUBJECT attribute updates, but received one: $change")
               case stapl.core.RESOURCE =>
                 execute(change)
+                updatedAttributeStore.store(change)
                 resourceId2Evaluation(request.resourceId) foreach { x =>
                   updatesWhileEvaluating(x.id) += change.attribute
                   log.debug(s"[Evaluation ${id}] Stored the possibly conflicting attribute update for the RESOURCE with evaluation ${x.id}")
@@ -438,8 +445,9 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
    * This method is called by the coordinator managing the SUBJECT
    * when the other coordinator has indicated that it is ok to commit.
    */
-  def finalizeCommitForSubject(requestId: String) {
-    // TODO finalize tentative updates
+  def finalizeCommitForSubject(evaluationId: String) {
+    val updates = updatedAttributeStore.finalizeTentativeUpdates(evaluationId)
+    updates foreach { execute(_) }
   }
 
   /**
@@ -452,7 +460,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   def restartForSubject(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // clean up first
     cleanUp(request.id)
-
+    val shouldBeRestarted = updatedAttributeStore.abortTentativeUpdates(request.id)
+    evaluationsThatShouldBeRestarted ++ shouldBeRestarted
     // set up the administration again, add appropriate attributes and return
     startForSubject(request)
   }
@@ -471,7 +480,6 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   def restartForResource(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
     // this is a restarted evaluation => clean up first
     cleanUp(request.id)
-
     // set up the administration again, add appropriate attributes and return
     startForResource(request)
   }
@@ -491,7 +499,19 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     val id = result.id
     // 1. check whether this policy evaluation should be restarted 
     //		because of failed tentative updates
-    // TODO    
+    // TODO this check can be narrowed down: you could additionally check whether the
+    // evaluation has actually employed the given attribute. This is not supported right
+    // now because the employedAttributes just returns the cached attributes, even if 
+    // the cached attribute was not actually used. Border case, but can still be an improvement.
+    if (evaluationsThatShouldBeRestarted.contains(result.id)) {
+      // return false so that the evaluation is restarted,
+      // but reset the list of updates while evaluation so that it can finish 
+      // correctly the next time
+      evaluationsThatShouldBeRestarted -= result.id
+      updatesWhileEvaluating(id) = ListBuffer()
+      log.debug(s"[Evaluation ${result.id}] This evaluation should be restarted because of aborted tentative updates")
+      return false
+    }
     // 2. check if we *can* commit: check for read-write conflicts
     val possibleConflicts = updatesWhileEvaluating(id)
     result.result.employedAttributes foreach {
@@ -534,7 +554,6 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // that the new update is assigned to the same update worker as
     // the previous update guarantees serial execution and that the second
     // update will be the final one
-    updatedAttributeStore.store(update)
     // send the update to a worker
     val key = (update.entityId, update.attribute)
     if (update2worker.contains(key)) {
@@ -586,7 +605,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
 }
 
 /**
- * 
+ *
  */
 class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int,
   coordinatorManager: CoordinatorLocater, foremanManager: ActorRef) extends Actor with ActorLogging {
@@ -824,7 +843,8 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       // 1. remove the request from our administration
       id2original.remove(id)
       // 2. finalize tentative attribute updates
-      // TODO
+      // MAJOR TODO: THIS CODE SHOULD NOT BE DUPLICATED WITH DISTRIBUTED COORDINATOR
+      ???
       // 3. send result to client
       val client = clients(id)
       client ! AuthorizationDecision(result.result.decision)
@@ -845,11 +865,8 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id FAILED for the RESOURCE => restart")
       // the commit succeeded   
       // 1. destroy tentative attribute updates and mark evaluations that used them to be restarted as well
-      // TODO
-      // TODO Notice that you can actually restart the evaluation immediately, but you do
-      //		have to be able to distinguish the result from the former and the latter
-      //		evaluation later on. You can do this based on the value of the employed 
-      //		attributes. 
+      // MAJOR TODO: THIS CODE SHOULD NOT BE DUPLICATED WITH DISTRIBUTED COORDINATOR
+      ???
       // 2. restart
       val original = id2original(id)
       val updated = concurrencyController.restartForSubject(original)
@@ -872,6 +889,6 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       log.warning(s"Unknown message received: $x")
 
   }
-  
+
   log.debug(s"$self: I'm alive!")
 }

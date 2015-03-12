@@ -21,6 +21,7 @@ import grizzled.slf4j.Logging
 import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.ConcreteChangeAttributeObligationAction
 import scala.collection.mutable.ListBuffer
+import stapl.core.ConcreteChangeAttributeObligationAction
 
 /**
  * Actor used for processing attribute updates asynchronously from the
@@ -72,16 +73,95 @@ case class UpdateFinished(updateWorker: ActorRef)
  */
 abstract class UpdatedAttributeStore extends Logging {
 
+  sealed abstract class UpdateStatus
+  case object Normal extends UpdateStatus
+  case object Tentative extends UpdateStatus
+
+  /**
+   * The map of evaluation id -> tentative attribute updates that were present
+   * in the result of that evaluation.
+   */
+  protected val evaluationId2TentativeAttributeUpdates = Map[String, ListBuffer[ConcreteChangeAttributeObligationAction]]()
+
+  /**
+   * The map of tentative attribute update -> the ids of the evaluations that
+   * have been added these tentative attribute updates.
+   */
+  protected val tentativeAttributeUpdate2EvaluationIds = Map[(String, Attribute), ListBuffer[String]]()
+
   /**
    * Stores an attribute update.
    */
-  def store(update: ConcreteChangeAttributeObligationAction)
+  protected def store(update: ConcreteChangeAttributeObligationAction, status: UpdateStatus): Unit
+  def store(update: ConcreteChangeAttributeObligationAction): Unit = store(update, Normal)
 
   /**
    * Notify this UpdatedAttributeStore that an ongoing update has finished.
    * The result of this information depends on the subclass.
    */
   def updateFinished(finishedUpdate: ConcreteChangeAttributeObligationAction)
+
+  /**
+   * Stores a tentative attribute update. The store will keep track of which
+   * policy evaluations have used this tentative update for possible rollbacks
+   * later on.
+   */
+  def storeTentative(evaluationId: String, update: ConcreteChangeAttributeObligationAction) {
+    // store in our general administration
+    store(update, Tentative)
+    // update the administration for tentative attribute updates
+    val key = (update.entityId, update.attribute)
+    if (evaluationId2TentativeAttributeUpdates.contains(evaluationId)) {
+      evaluationId2TentativeAttributeUpdates(evaluationId) += update
+    } else {
+      // first time that we see an update for this evaluation => initialize the administration
+      evaluationId2TentativeAttributeUpdates(evaluationId) = ListBuffer(update)
+      tentativeAttributeUpdate2EvaluationIds(key) = ListBuffer()
+    }
+  }
+
+  private def cleanupTentative(evaluationId: String) {
+    for (update <- evaluationId2TentativeAttributeUpdates(evaluationId)) {
+      val key = (update.entityId, update.attribute)
+      tentativeAttributeUpdate2EvaluationIds.remove(key)
+    }
+    evaluationId2TentativeAttributeUpdates.remove(evaluationId)
+  }
+
+  /**
+   * Aborts the tentative attribute updates of the policy evaluation with given
+   * id by removing the updates from the administration and returning the ids of
+   * policy evaluations that have been added these tentatively updated attributes.
+   */
+  def abortTentativeUpdates(evaluationId: String): Seq[String] = {
+    // build up the evaluations that should be restarted
+    val evaluationsThatShouldBeRestarted = ListBuffer[String]()
+    if (evaluationId2TentativeAttributeUpdates.contains(evaluationId)) {
+      for (update <- evaluationId2TentativeAttributeUpdates(evaluationId)) {
+        val key = (update.entityId, update.attribute)
+        evaluationsThatShouldBeRestarted ++= tentativeAttributeUpdate2EvaluationIds(key)
+      }
+      // clean up the administration
+      cleanupTentative(evaluationId)
+    }
+    // return
+    evaluationsThatShouldBeRestarted
+  }
+
+  /**
+   * Finalizes the tentative attribute updates of the policy evaluation with given
+   * id by removing them from the administration and returning them, so that they can actually
+   * be processed in the database.
+   */
+  def finalizeTentativeUpdates(evaluationId: String): Seq[ConcreteChangeAttributeObligationAction] = {
+    if (evaluationId2TentativeAttributeUpdates.contains(evaluationId)) {
+      val toReturn = evaluationId2TentativeAttributeUpdates(evaluationId)
+      cleanupTentative(evaluationId)
+      toReturn
+    } else {
+      List[ConcreteChangeAttributeObligationAction]()
+    }
+  }
 
   /**
    * Adds the appropriate attributes in this store to the given request.
@@ -97,22 +177,22 @@ class OngoingAttributeUpdatesStore extends UpdatedAttributeStore {
   /**
    * The ongoing updates per entityId.
    */
-  private val subjectId2OngoingUpdates = new HashMap[String, Map[Attribute, ConcreteValue]]
-  private val resourceId2OngoingUpdates = new HashMap[String, Map[Attribute, ConcreteValue]]
+  private val subjectId2OngoingUpdates = new HashMap[String, Map[Attribute, (ConcreteValue, UpdateStatus)]]
+  private val resourceId2OngoingUpdates = new HashMap[String, Map[Attribute, (ConcreteValue, UpdateStatus)]]
 
   /**
    * Stores an attribute update.
    */
-  override def store(update: ConcreteChangeAttributeObligationAction) {
+  override def store(update: ConcreteChangeAttributeObligationAction, status: UpdateStatus) {
     val target = update.attribute.cType match {
       case stapl.core.SUBJECT => subjectId2OngoingUpdates
       case stapl.core.RESOURCE => resourceId2OngoingUpdates
       case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given container type: $x")
     }
     if (target.contains(update.entityId)) {
-      target(update.entityId)(update.attribute) = update.value
+      target(update.entityId)(update.attribute) = (update.value, status)
     } else {
-      target(update.entityId) = Map(update.attribute -> update.value)
+      target(update.entityId) = Map(update.attribute -> (update.value, status))
     }
   }
 
@@ -131,7 +211,7 @@ class OngoingAttributeUpdatesStore extends UpdatedAttributeStore {
     }
     if (target.contains(finishedUpdate.entityId)) {
       val values = target(finishedUpdate.entityId)
-      if (values.contains(finishedUpdate.attribute) && values(finishedUpdate.attribute) == finishedUpdate.value) {
+      if (values.contains(finishedUpdate.attribute) && values(finishedUpdate.attribute)._1 == finishedUpdate.value) {
         values.remove(finishedUpdate.attribute)
       }
       if (values.isEmpty) {
@@ -144,22 +224,38 @@ class OngoingAttributeUpdatesStore extends UpdatedAttributeStore {
    * Adds the appropriate attributes in this store to the given request.
    */
   override def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
-    var attributes = request.extraAttributes
+    val attributes = ListBuffer(request.extraAttributes: _*)
     // Note: subjectId2OngoingUpdates will only contain this request if
     // we should also manage this request => this method can be used from
     // both the subject-specific and resource-specific methods.
     // Note: there will never be tentative updates for resource attributes
     if (subjectId2OngoingUpdates.contains(request.subjectId)) {
       val toAdd = subjectId2OngoingUpdates(request.subjectId).toSeq
-      attributes ++= toAdd
-      debug(s"[Evaluation ${request.id}] Added the following ongoing attributes because of ongoing updates on the SUBJECT: $toAdd")
+      for ((attribute, (value, status)) <- toAdd) {
+        attributes += ((attribute, value))
+        status match {
+          case Normal =>
+            debug(s"[Evaluation ${request.id}] Added the following ongoing attribute because of ongoing updates on the SUBJECT: ($attribute,$value)")
+          case Tentative =>
+            tentativeAttributeUpdate2EvaluationIds((request.subjectId, attribute)) += request.id
+            debug(s"[Evaluation ${request.id}] Added the following TENTATIVELY ongoing attribute because of ongoing updates on the SUBJECT: ($attribute,$value)")
+        }
+      }
     }
     if (resourceId2OngoingUpdates.contains(request.resourceId)) {
       val toAdd = resourceId2OngoingUpdates(request.resourceId).toSeq
-      attributes ++= toAdd
-      debug(s"[Evaluation ${request.id}] Added the following ongoing attributes because of ongoing updates on the RESOURCE: $toAdd")
+      for ((attribute, (value, status)) <- toAdd) {
+        attributes += ((attribute, value))
+        status match {
+          case Normal =>
+            debug(s"[Evaluation ${request.id}] Added the following ongoing attribute because of ongoing updates on the RESOURCE: ($attribute,$value)")
+          case Tentative =>
+            tentativeAttributeUpdate2EvaluationIds((request.resourceId, attribute)) += request.id
+            debug(s"[Evaluation ${request.id}] Added the following TENTATIVELY ongoing attribute because of ongoing updates on the RESOURCE: ($attribute,$value)")
+        }
+      }
     }
-    request.copy(extraAttributes = attributes)
+    request.copy(extraAttributes = List(attributes: _*))
   }
 }
 
@@ -187,25 +283,25 @@ class OngoingAttributeUpdatesStore extends UpdatedAttributeStore {
  * => TODO
  *
  * ALSO NOTICE THAT WE ONLY STORE THE MOST RECENT VALUE IN CASE OF CONSECUTIVE
- * ATTRIBUTE UPDATES of the same attribute of the same entity.  
+ * ATTRIBUTE UPDATES of the same attribute of the same entity.
  */
 class UpdatedAttributeCache(size: Int = 1000) extends UpdatedAttributeStore {
 
   /**
    * The shifting queue of updated attributes.
    */
-  private val updatedAttributes = new ListBuffer[(String,Attribute)]()
+  private val updatedAttributes = new ListBuffer[(String, Attribute)]()
 
   /**
    * The updated attributes per entity (for fast access).
    */
-  private val subjectId2UpdatedAttributes = new HashMap[String, Map[Attribute, ConcreteValue]]
-  private val resourceId2UpdatedAttributes = new HashMap[String, Map[Attribute, ConcreteValue]]
+  private val subjectId2UpdatedAttributes = new HashMap[String, Map[Attribute, (ConcreteValue, UpdateStatus)]]
+  private val resourceId2UpdatedAttributes = new HashMap[String, Map[Attribute, (ConcreteValue, UpdateStatus)]]
 
   /**
    * Stores an attribute update.
    */
-  override def store(update: ConcreteChangeAttributeObligationAction) {
+  override def store(update: ConcreteChangeAttributeObligationAction, status: UpdateStatus) {
     // if another update for this entity and this attribute is already present
     // in the queue, we have to remove the previous value from the queue and
     // add it to the end of the queue again (i.e., as the recent update)
@@ -217,9 +313,9 @@ class UpdatedAttributeCache(size: Int = 1000) extends UpdatedAttributeStore {
     if (target.contains(update.entityId)) {
       // we already have a value for this entity and this attribute
       // => update the value in the map...
-      target(update.entityId)(update.attribute) = update.value
+      target(update.entityId)(update.attribute) = (update.value, status)
       // ... and move the update to the back of the queue
-      val queueKey = (update.entityId,update.attribute)
+      val queueKey = (update.entityId, update.attribute)
       updatedAttributes -= queueKey
       updatedAttributes += queueKey
       // note: we do not have to check the size of the queue here because
@@ -227,12 +323,12 @@ class UpdatedAttributeCache(size: Int = 1000) extends UpdatedAttributeStore {
     } else {
       // we do not have a value for this entity and this attribute yet
       // => add the value to the map...
-      target(update.entityId) = Map(update.attribute -> update.value)
+      target(update.entityId) = Map(update.attribute -> (update.value, status))
       // ... and just add the queue key to the end of the queue ...
-      val queueKey = (update.entityId,update.attribute)
-      updatedAttributes += queueKey      
+      val queueKey = (update.entityId, update.attribute)
+      updatedAttributes += queueKey
       // ... and check the size of the queue
-      if(updatedAttributes.size > size) {
+      if (updatedAttributes.size > size) {
         // remove the head
         updatedAttributes.remove(0)
       }
@@ -251,17 +347,39 @@ class UpdatedAttributeCache(size: Int = 1000) extends UpdatedAttributeStore {
    * Adds the appropriate attributes in this store to the given request.
    */
   override def addSuitableAttributes(request: PolicyEvaluationRequest): PolicyEvaluationRequest = {
-    var attributes = request.extraAttributes
+    val attributes = ListBuffer(request.extraAttributes: _*)
     if (subjectId2UpdatedAttributes.contains(request.subjectId)) {
       val toAdd = subjectId2UpdatedAttributes(request.subjectId).toSeq
-      attributes ++= toAdd
-      debug(s"[Evaluation ${request.id}] Added the following cached updated attributes because of ongoing updates on the SUBJECT: $toAdd")
+      for ((attribute, (value, status)) <- toAdd) {
+        attributes += ((attribute, value))
+        status match {
+          case Normal =>
+            debug(s"[Evaluation ${request.id}] Added the following cached attribute because of ongoing updates on the SUBJECT: ($attribute,$value)")
+          case Tentative =>
+            try {
+              tentativeAttributeUpdate2EvaluationIds((request.subjectId, attribute)) += request.id
+            } catch {
+              case e: NoSuchElementException => 
+                println(e)
+                throw e
+            }
+            debug(s"[Evaluation ${request.id}] Added the following TENTATIVELY cached attribute because of ongoing updates on the SUBJECT: ($attribute,$value)")
+        }
+      }
     }
     if (resourceId2UpdatedAttributes.contains(request.resourceId)) {
       val toAdd = resourceId2UpdatedAttributes(request.resourceId).toSeq
-      attributes ++= toAdd
-      debug(s"[Evaluation ${request.id}] Added the following cached updated attributes because of ongoing updates on the RESOURCE: $toAdd")
+      for ((attribute, (value, status)) <- toAdd) {
+        attributes += ((attribute, value))
+        status match {
+          case Normal =>
+            debug(s"[Evaluation ${request.id}] Added the following cached attribute because of ongoing updates on the RESOURCE: ($attribute,$value)")
+          case Tentative =>
+            tentativeAttributeUpdate2EvaluationIds((request.resourceId, attribute)) += request.id
+            debug(s"[Evaluation ${request.id}] Added the following TENTATIVELY cached attribute because of ongoing updates on the RESOURCE: ($attribute,$value)")
+        }
+      }
     }
-    request.copy(extraAttributes = attributes)
+    request.copy(extraAttributes = List(attributes: _*))
   }
 }

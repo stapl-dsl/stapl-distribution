@@ -15,6 +15,7 @@ import scala.collection.mutable.Queue
 import stapl.core.AbstractPolicy
 import stapl.distribution.util.ThroughputAndLatencyStatistics
 import stapl.core.Deny
+import scala.collection.mutable.ListBuffer
 
 /**
  *  This is a coordinator that is part of a distributed group of coordinators. This means
@@ -69,6 +70,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
    */
   val externalWorkQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
   val internalWorkQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
+  
 
   /**
    * *********************************
@@ -359,7 +361,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
       // 1. remove the request from our administration
       id2original.remove(id)
       // 2. finalize tentative attribute updates
-      // TODO
+      concurrencyController.finalizeCommitForSubject(result.id)      
       // 3. send result to client
       val client = clients(id)
       client ! AuthorizationDecision(result.result.decision)
@@ -378,14 +380,10 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
     case CommitForResourceFailed(result) =>
       val id = result.id
       log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id FAILED for the RESOURCE => restart")
-      // the commit succeeded   
-      // 1. destroy tentative attribute updates and mark evaluations that used them to be restarted as well
-      // TODO
-      // TODO Notice that you can actually restart the evaluation immediately, but you do
-      //		have to be able to distinguish the result from the former and the latter
-      //		evaluation later on. You can do this based on the value of the employed 
-      //		attributes. 
+      // the commit failed
       // 2. restart
+      // The concurrency controller takes care of destroying tentative updates and
+      // marking the evaluations that used these attributes as to be restarted.
       val original = id2original(id)
       val updated = concurrencyController.restartForSubject(original)
       // ask the other coordinator to restart as well. This coordinator will 
