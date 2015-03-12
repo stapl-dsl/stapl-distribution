@@ -36,7 +36,7 @@ import scala.util.{ Success, Failure }
 import java.util.concurrent.CountDownLatch
 
 class DistributedCoordinatorTest extends AssertionsForJUnit {
-  
+
   import stapl.distribution.policies.ConcurrencyPolicies._
 
   private def startLocalActorSystem(name: String, port: Int) = {
@@ -49,26 +49,22 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
     ActorSystem(name, customConf)
   }
 
-  val NB_COORDINATORS = 2
-  val NB_SUBJECTS = 5
-  val NB_RESOURCES = 5
-
   val actorSystems = scala.collection.mutable.ListBuffer[ActorSystem]()
   val pool = new InMemoryAttributeDatabaseConnectionPool
 
-  def setupCoordinators(policy: AbstractPolicy) = {
+  def setupCoordinators(policy: AbstractPolicy, nbCoordinators: Int) = {
     val clientSystem = startLocalActorSystem("STAPL-coordinator", 2552)
     actorSystems += clientSystem
 
     // set up the coordinators
-    val coordinatorLocations = (1 to NB_COORDINATORS).map(id => ("127.0.0.1", 2553 + id))
+    val coordinatorLocations = (1 to nbCoordinators).map(id => ("127.0.0.1", 2553 + id))
     val coordinatorManagers = scala.collection.mutable.ListBuffer[HardcodedDistributedCoordinatorManager]()
-    for (id <- 1 to NB_COORDINATORS) {
+    for (id <- 1 to nbCoordinators) {
       val system = startLocalActorSystem("STAPL-coordinator", 2553 + id)
       actorSystems += system
       val coordinatorManager = new HardcodedDistributedCoordinatorManager(system, coordinatorLocations: _*)
       coordinatorManagers += coordinatorManager
-      
+
       // set up the coordinator
       /*DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
 		  pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
@@ -80,7 +76,7 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
         1, 1, pool, coordinatorManager,
         false, false, -1, false, false, false, false, -1), "coordinator")
     }
-    
+
     // only now initialize the coordinator managers
     coordinatorManagers.foreach(_.initialize)
 
@@ -96,54 +92,60 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
     actorSystems.clear
   }
 
-  @Before def resetDB = {
+  def resetDB(nbSubjects: Int, nbResources: Int) = {
     val db = pool.getConnection
     db.cleanStart
     // store the necessary attribute values
-    for (i <- 1 to NB_SUBJECTS) {
+    for (i <- 1 to nbSubjects) {
       db.storeAttribute(s"subject$i", SUBJECT, subject.nbAccesses.name, 0)
     }
-    for (i <- 1 to NB_RESOURCES) {
+    for (i <- 1 to nbResources) {
       db.storeAttribute(s"resource$i", RESOURCE, resource.nbAccesses.name, 0)
     }
   }
 
   @Test def testSingleResource1 {
-    val (system, coordinators) = setupCoordinators(max1ResourceAccess)
+    val nbResources = 5
+    
+    for (nbSubjects <- 2 to 20; nbCoordinators <- 1 to 4) {
+      resetDB(nbSubjects, nbResources)
 
-    val latch = new CountDownLatch(NB_SUBJECTS)
-    val nbPermits = new AtomicInteger(0)
+      val (system, coordinators) = setupCoordinators(max1ResourceAccess, nbCoordinators)
 
-    implicit val timeout = Timeout(2.second)
-    implicit val ec = system.dispatcher
+      val latch = new CountDownLatch(nbSubjects)
+      val nbPermits = new AtomicInteger(0)
 
-    import ClientCoordinatorProtocol._
-    for (i <- 1 to NB_SUBJECTS) {
-      val request = AuthorizationRequest(s"subject$i", "view", "resource1")
-      val result = coordinators.getCoordinatorFor(request) ? request
-      println("sent request")
-      result onComplete {
-        case Success(AuthorizationDecision(decision)) =>
-          latch.countDown()
-          println(s"latch is ${latch.getCount()}")
-          if (decision == Permit) {
-            nbPermits.incrementAndGet()
-          }
-        case Success(x) =>
-          print("damn1")
-          fail(s"Unknown success received: $x")
-        case Failure(e) =>
-          println("received error: ")
-          e.printStackTrace()
-          fail("Error received", e)
+      implicit val timeout = Timeout(2.second)
+      implicit val ec = system.dispatcher
+
+      import ClientCoordinatorProtocol._
+      for (i <- 1 to nbSubjects) {
+        val request = AuthorizationRequest(s"subject$i", "view", "resource1")
+        val result = coordinators.getCoordinatorFor(request) ? request
+        println("sent request")
+        result onComplete {
+          case Success(AuthorizationDecision(decision)) =>
+            latch.countDown()
+            println(s"latch is ${latch.getCount()}")
+            if (decision == Permit) {
+              nbPermits.incrementAndGet()
+            }
+          case Success(x) =>
+            print("damn1")
+            fail(s"Unknown success received: $x")
+          case Failure(e) =>
+            println("received error: ")
+            e.printStackTrace()
+            fail("Error received", e)
+        }
       }
+
+      // wait for completion
+      latch.await()
+      println("wtf")
+      assertEquals(nbPermits.get(), 1)
+
+      shutdownActorSystems
     }
-    
-    // wait for completion
-    latch.await()
-    println("wtf")
-    assertEquals(nbPermits.get(), 1)
-    
-    actorSystems.foreach(_.shutdown)
   }
 }
