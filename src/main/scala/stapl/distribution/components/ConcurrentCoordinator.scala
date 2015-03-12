@@ -282,6 +282,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   }
 
   /**
+   * Adds the appropriate attributes to the given request. 
+   * 
    * Note: if we manage both the subject and the resource of this request,
    * this method will have added the necessary attributes for both.
    */
@@ -376,8 +378,15 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
             change.attribute.cType match {
               case stapl.core.SUBJECT =>
                 subjectId2Evaluation(request.subjectId) foreach { x =>
-                  // updatesWhileEvaluating(x.id) += change.attribute
-                  // TODO store the attribute update tentatively here
+                  // here we store the possibly conflicting attribute update tentatively,
+                  // which means that conflicts will be handled as before, meaning that  
+                  // it can be the case that evaluations are restarted based on a conflicting 
+                  // tentative update that later is reverted. This is not a problem per se,
+                  // just an inefficiency that comes with tentative updates. 
+                  // MORE IMPORTANTLY is that evaluations that have received a tentatively updated
+                  // attribute in their attribute cache are restarted if this turned out to be
+                  // reverted by the coordinator of the resource
+                  updatesWhileEvaluating(x.id) += change.attribute
                   log.debug(s"[Evaluation ${id}] Stored the possibly conflicting attribute update TENTATIVELY for the SUBJECT with evaluation ${x.id}")
                 }
               case stapl.core.RESOURCE =>
@@ -539,7 +548,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     val target = update.attribute.cType match {
       case stapl.core.SUBJECT => subjectId2OngoingUpdates
       case stapl.core.RESOURCE => resourceId2OngoingUpdates
-      case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given attribute: $x")
+      case x => throw new IllegalArgumentException(s"You can only update SUBJECT or RESOURCE attributes. Given container type: $x")
     }
     if (target.contains(update.entityId)) {
       target(update.entityId)(update.attribute) = update.value
@@ -549,6 +558,9 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
     // send the update to a worker
     val key = (update.entityId, update.attribute)
     if (update2worker.contains(key)) {
+      // if another update worker is processing an update for this attribute
+      // for this entity, this new update should be handled by the same 
+      // update worker (see explanation above)
       val (worker, count) = update2worker(key)
       update2worker(key) = (worker, count + 1)
       ongoingUpdates(worker).enqueue(update)
@@ -572,7 +584,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   }
 
   /**
-   * Indicates to the controller that an UpdateWorker has finished.
+   * Indicates to the controller that an UpdateWorker has finished an update.
    */
   def updateFinished(updateWorker: ActorRef): Unit = {
     // remove the head, this is always the update that is finished
@@ -698,7 +710,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
      */
     case ManageResourceAndStartEvaluation(updatedRequest) =>
       // log
-      log.debug(s"[Evaluation #${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
+      log.debug(s"[Evaluation ${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
       // add the attributes according to our own administration
       val updatedAgain = concurrencyController.startForResource(updatedRequest)
       // forward the updated request to our foreman manager
@@ -714,7 +726,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
      */
     case ManageResourceAndRestartEvaluation(updatedRequest) =>
       // log
-      log.debug(s"[Evaluation #${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
+      log.debug(s"[Evaluation ${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
       // add the attributes according to our own administration
       val updatedAgain = concurrencyController.restartForResource(updatedRequest)
       // forward the updated request to our foreman manager

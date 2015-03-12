@@ -90,6 +90,8 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
   def shutdownActorSystems = {
     actorSystems.foreach(_.shutdown)
     actorSystems.clear
+    // wait for the systems to shut down
+    Thread.sleep(200)
   }
 
   def resetDB(nbSubjects: Int, nbResources: Int) = {
@@ -106,7 +108,7 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
 
   @Test def testSingleResource1 {
     val nbResources = 5
-    
+
     for (nbSubjects <- 2 to 20; nbCoordinators <- 1 to 4) {
       resetDB(nbSubjects, nbResources)
 
@@ -131,19 +133,59 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
               nbPermits.incrementAndGet()
             }
           case Success(x) =>
-            print("damn1")
             fail(s"Unknown success received: $x")
           case Failure(e) =>
-            println("received error: ")
-            e.printStackTrace()
             fail("Error received", e)
         }
       }
 
       // wait for completion
       latch.await()
-      println("wtf")
-      assertEquals(nbPermits.get(), 1)
+      assertEquals(1, nbPermits.get())
+
+      shutdownActorSystems
+    }
+  }
+
+  @Test def testSingleSubject1 {
+    val nbSubjects = 5
+
+    for (nbResources <- 2 to 20; nbCoordinators <- 1 to 4) {
+      println("========================")
+      println(s"Starting test nbSubjects=$nbSubjects, nbResources=$nbResources, nbCoordinators=$nbCoordinators")
+      println("========================")
+      resetDB(nbSubjects, nbResources)
+
+      val (system, coordinators) = setupCoordinators(max1SubjectAccess, nbCoordinators)
+
+      val latch = new CountDownLatch(nbSubjects)
+      val nbPermits = new AtomicInteger(0)
+
+      implicit val timeout = Timeout(2.second)
+      implicit val ec = system.dispatcher
+
+      import ClientCoordinatorProtocol._
+      for (i <- 1 to nbSubjects) {
+        val request = AuthorizationRequest("subject1", "view", s"resource$i")
+        val result = coordinators.getCoordinatorFor(request) ? request
+        println("sent request")
+        result onComplete {
+          case Success(AuthorizationDecision(decision)) =>
+            latch.countDown()
+            println(s"latch is ${latch.getCount()}")
+            if (decision == Permit) {
+              nbPermits.incrementAndGet()
+            }
+          case Success(x) =>
+            fail(s"Unknown success received: $x")
+          case Failure(e) =>
+            fail("Error received", e)
+        }
+      }
+
+      // wait for completion
+      latch.await()
+      assertEquals(1, nbPermits.get())
 
       shutdownActorSystems
     }
