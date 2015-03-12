@@ -221,7 +221,8 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
   /**
    * The store/cache of the updated attributes and/or ongoing attribute updates.
    */
-  private val updatedAttributeStore = new OngoingAttributeUpdatesStore
+  private val updatedAttributeStore = new UpdatedAttributeCache(1000)
+  //private val updatedAttributeStore = new OngoingAttributeUpdatesStore
 
   /**
    * Indicates to the controller that the evaluation of the given
