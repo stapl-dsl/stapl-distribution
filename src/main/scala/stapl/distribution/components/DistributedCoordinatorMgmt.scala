@@ -23,11 +23,31 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import scala.util.Failure
 import scala.util.Success
 import grizzled.slf4j.Logging
+import scala.collection.mutable.ListBuffer
 
 /**
  *
  */
-abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
+class SimpleDistributedCoordinatorLocater extends CoordinatorLocater with CoordinatorGroup {
+
+  override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
+
+  /**
+   * Helper method to update the whole list of coordinators at once.
+   *
+   * This method is NOT thread-safe if the list is being read at the same time
+   * as well.
+   */
+  def setCoordinators(cs: List[ActorRef]) {
+    coordinators.clear
+    coordinators ++= cs
+  }
+}
+
+/**
+ *
+ */
+class AbstractDistributedCoordinatorLocater(actorSystem: ActorSystem)
   extends CoordinatorLocater with CoordinatorGroup {
 
   override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
@@ -49,8 +69,9 @@ abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
 
   /**
    * Helper method to update the whole list of coordinators at once.
+   *
    * This method is NOT thread-safe if the list is being read at the same time
-   * as well. 
+   * as well.
    */
   def setCoordinators(cs: List[ActorRef]) {
     coordinators.clear
@@ -75,8 +96,8 @@ abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
  *
  * FIXME there seems to be a race condition here: the order is not the same on every node every time...
  */
-class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
-  extends DistributedCoordinatorManager(actorSystem) with ItemListener[(String, Int)] {
+class HazelcastDistributedCoordinatorLocater(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
+  extends AbstractDistributedCoordinatorLocater(actorSystem) with ItemListener[(String, Int)] {
 
   import scala.collection.JavaConversions._
   import akka.serialization._
@@ -116,17 +137,59 @@ class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actor
 }
 
 /**
- *
+ * A distributed coordinator manager that does not update its values at run-time, but
+ * is just given a list of coordinator locations at initialization.
  */
-class HardcodedDistributedCoordinatorManager(actorSystem: ActorSystem, coordinators: (String, Int)*)
-  extends DistributedCoordinatorManager(actorSystem) {
+class HardcodedDistributedCoordinatorLocater(actorSystem: ActorSystem, coordinators: (String, Int)*)
+  extends AbstractDistributedCoordinatorLocater(actorSystem) {
 
   /**
-   * Initiaze the ActorRefs (only now will the IP and ports be mapped to ActorRefs,
+   * Initialize the ActorRefs (only now will the IP and ports be mapped to ActorRefs,
    * do this after the remote Actors are up and running).
    */
   def initialize() {
     coordinators.foreach(location =>
       addCoordinator(location))
+  }
+}
+
+/**
+ * An actor that manages a cluster of distributed coordinators.
+ *
+ * @param 	locator
+ * 			The DistributedCoordinatorLocator in which this DistributedCoordinatorManager
+ *    		will maintain the list of coordinators. This Locator should be shared with the
+ *      	coordinator behind the given ActorRef.
+ * @param	coordinator
+ * 			The Coordinator for which this DistributedCoordinatorManager manages the locater.
+ *
+ * IMPORTANT NOTE: for now, the implementation is not thread-safe, does not take failures into account and
+ * 		does not update the list of coordinators atomically.
+ * 		Bottom line: only add coordinators before requests are sent, do not remove coordinators.
+ */
+class DistributedCoordinatorManager extends Actor with ActorLogging {
+
+  private var idCounter = 0
+
+  private val coordinators = ListBuffer[(Int, ActorRef)]()
+
+  /**
+   * *********************************
+   * ACTOR FUNCTIONALITY
+   */
+  def receive = {
+
+    case DistributedCoordinatorRegistrationProtocol.Register(coordinator) =>
+      // add the coordinator to the administration
+      coordinators += ((idCounter, coordinator))
+      // ack to the manager of the new coordinator (*including* the new coordinator itself)
+      sender ! DistributedCoordinatorRegistrationProtocol.AckOfRegister(idCounter, coordinators.toList)
+      // notify all but the new coordinator of the update 
+      coordinators.init.foreach {
+        case (id, coordinator) =>
+          coordinator ! DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(coordinators.toList)
+      }
+      // increment the id counter
+      idCounter += 1
   }
 }

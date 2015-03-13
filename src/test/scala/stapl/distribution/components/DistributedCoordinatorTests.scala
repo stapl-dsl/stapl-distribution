@@ -60,11 +60,11 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
 
     // set up the coordinators
     val coordinatorLocations = (1 to nbCoordinators).map(id => ("127.0.0.1", 2553 + id))
-    val coordinatorManagers = scala.collection.mutable.ListBuffer[HardcodedDistributedCoordinatorManager]()
+    val coordinatorManagers = scala.collection.mutable.ListBuffer[HardcodedDistributedCoordinatorLocater]()
     for (id <- 1 to nbCoordinators) {
       val system = startLocalActorSystem("STAPL-coordinator", 2553 + id)
       actorSystems += system
-      val coordinatorManager = new HardcodedDistributedCoordinatorManager(system, coordinatorLocations: _*)
+      val coordinatorManager = new HardcodedDistributedCoordinatorLocater(system, coordinatorLocations: _*)
       coordinatorManagers += coordinatorManager
 
       // set up the coordinator
@@ -83,7 +83,7 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
     coordinatorManagers.foreach(_.initialize)
 
     // set up the client
-    val coordinators = new HardcodedDistributedCoordinatorManager(clientSystem, coordinatorLocations: _*)
+    val coordinators = new HardcodedDistributedCoordinatorLocater(clientSystem, coordinatorLocations: _*)
     coordinators.initialize
 
     (clientSystem, coordinators)

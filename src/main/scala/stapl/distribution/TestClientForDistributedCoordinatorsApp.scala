@@ -21,7 +21,7 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.TestClientForCoordinatorGroup
-import stapl.distribution.components.HazelcastDistributedCoordinatorManager
+import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
 import stapl.distribution.util.StatisticsActor
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
@@ -105,7 +105,7 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
       cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
 
-      val coordinators = new HazelcastDistributedCoordinatorManager(hazelcast, system)
+      val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)

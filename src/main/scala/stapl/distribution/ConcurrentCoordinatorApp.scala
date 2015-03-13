@@ -18,7 +18,6 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 import stapl.distribution.components.ConcurrentCoordinator
-import stapl.distribution.components.DistributedCoordinatorManager
 import stapl.distribution.components.ConcurrentCoordinatorManager
 import stapl.distribution.components.ForemanManager
 

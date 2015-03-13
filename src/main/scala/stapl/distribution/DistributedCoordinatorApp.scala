@@ -18,15 +18,19 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 import stapl.distribution.components.DistributedCoordinator
-import stapl.distribution.components.HazelcastDistributedCoordinatorManager
+import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
 import stapl.examples.policies.EhealthPolicy
 import stapl.distribution.policies.ConcurrencyPolicies
+import stapl.distribution.components.DistributedCoordinatorManager
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1,
   nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
-  otherCoordinatorIP: String = "not-provided", databaseType: String = "not-provided", policy: String = "not-provided",
+  coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1, databaseType: String = "not-provided", 
+  policy: String = "not-provided",
   logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
-  statsOutInterval: Int = 2000,  enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
+  statsOutInterval: Int = 2000, enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
   mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0)
 
 object DistributedCoordinatorApp {
@@ -80,9 +84,13 @@ object DistributedCoordinatorApp {
         c.copy(databasePort = x)
       } text ("The port on which the database containing the attributes is listening.")
 
-      opt[String]("other-coordinator-ip") action { (x, c) =>
-        c.copy(otherCoordinatorIP = x)
-      } text ("The IP address of another coordinator in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
+      opt[String]("coordinator-manager-ip") action { (x, c) =>
+        c.copy(coordinatorManagerIP = x)
+      } text ("The IP address of the coordinator manager in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
+
+      opt[Int]("coordinator-manager-port") action { (x, c) =>
+        c.copy(coordinatorManagerPort = x)
+      } text ("The port of the coordinator manager in the cluster. Only needed if coordinator-manager-port is given.")
 
       opt[String]("policy") required () action { (x, c) =>
         c.copy(policy = x)
@@ -106,8 +114,8 @@ object DistributedCoordinatorApp {
 
       opt[Int]("stats-out-interval") action { (x, c) =>
         c.copy(statsOutInterval = x)
-      } text ("The interval on which to report on output stats, in number of requests. " + 
-          "Only taken into account if --enable-stats-out is set. Default: 2000.")
+      } text ("The interval on which to report on output stats, in number of requests. " +
+        "Only taken into account if --enable-stats-out is set. Default: 2000.")
 
       opt[Unit]("enable-stats-db") action { (x, c) =>
         c.copy(enableStatsDb = true)
@@ -146,40 +154,47 @@ object DistributedCoordinatorApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-coordinator", customConf)
 
-      // set up hazelcast
-      val cfg = new Config()
-      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
-      if (config.otherCoordinatorIP != "not-provided") {
-        cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.otherCoordinatorIP)
-        println(s"Added other coordinator at ${config.otherCoordinatorIP} to Hazelcast config")
-      }
-      if (config.databaseType == "hazelcast") {
-        val mapCfg = new MapConfig("stapl-attributes")
-        mapCfg.setMapStoreConfig(new MapStoreConfig()
-          .setEnabled(true)
-          .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-        cfg.addMapConfig(mapCfg)
-      }
-      val hazelcast = Hazelcast.newHazelcastInstance(cfg)
       // set up the database
       val pool: AttributeDatabaseConnectionPool = config.databaseType match {
-        case "hazelcast" => new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+        case "hazelcast" =>
+          val cfg = new Config()
+          cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
+          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
+          val mapCfg = new MapConfig("stapl-attributes")
+          mapCfg.setMapStoreConfig(new MapStoreConfig()
+            .setEnabled(true)
+            .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
+          cfg.addMapConfig(mapCfg)
+          val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+          new HazelcastAttributeDatabaseConnectionPool(hazelcast)
         case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
       }
       // set up the coordinator manager
-      val coordinatorManager = new HazelcastDistributedCoordinatorManager(hazelcast, system)
+      //      val coordinatorManager = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
       // get the id of our coordinator
-      val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
+      //      val coordinatorId = hazelcast.getAtomicLong("stapl-coordinators").incrementAndGet()
+      // new method: set up a coordinatorManager if we are the master or connect to the master
+      // coordinatorManager otherwise
+      val coordinatorManager = config.coordinatorManagerIP match {
+        case "not-provided" =>
+          // we are the master
+          val result = system.actorOf(Props[DistributedCoordinatorManager], "distributed-coordinator-manager")
+          println("Set up a new master coordinatorManager")
+          result
+        case ip =>
+          // we should connect to the master coordinatorManager otherwise
+          val selection = system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorManagerIP}:${config.coordinatorManagerPort}/user/distributed-coordinator-manager")
+          implicit val dispatcher = system.dispatcher
+          val result = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+          println(s"Connected to master coordinatorManager at ${config.coordinatorManagerIP}:${config.coordinatorManagerPort}")
+          result
+      }
 
       // set up the coordinator
-      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], coordinatorId, policies(config.policy),
+      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], policies(config.policy),
         config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager,
         config.enableStatsIn, config.enableStatsOut, config.statsOutInterval, config.enableStatsWorkers, config.enableStatsDb,
         config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
-
-      // register the coordinator
-      coordinatorManager.register(config.ip, config.port)
 
       var mockString = "";
       if (config.mockDecision) {
@@ -187,7 +202,7 @@ object DistributedCoordinatorApp {
       } else if (config.mockEvaluation) {
         mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}ms"
       }
-      println(s"DistributedCoordinator #$coordinatorId up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
+      println(s"DistributedCoordinator up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }

@@ -16,6 +16,13 @@ import stapl.core.AbstractPolicy
 import stapl.distribution.util.ThroughputAndLatencyStatistics
 import stapl.core.Deny
 import scala.collection.mutable.ListBuffer
+import akka.util.Timeout
+import scala.concurrent.Await
+import scala.concurrent.duration.DurationInt
+import scala.util.Failure
+import scala.util.Random
+import scala.util.Success
+import akka.pattern.ask
 
 /**
  *  This is a coordinator that is part of a distributed group of coordinators. This means
@@ -29,8 +36,8 @@ import scala.collection.mutable.ListBuffer
  *  at run-time, i.e., all coordinators should be set up before the first request is sent
  *  in order to avoid concurrency issues.
  */
-class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
-  pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
+class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
+  pool: AttributeDatabaseConnectionPool, coordinatorManager: ActorRef,
   enableStatsIn: Boolean = false, enableStatsOut: Boolean = false, statsOutInterval: Int = 2000,
   enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
   mockDecision: Boolean = false, mockEvaluation: Boolean = false,
@@ -39,8 +46,24 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
   import ClientCoordinatorProtocol._
   import ConcurrentCoordinatorProtocol._
   import InternalCoordinatorProtocol._
-
   import scala.collection.mutable.Map
+
+  // start by registering to the DistributedCoordinatorManager
+  // FAIL IF THE REGISTRATION FAILS
+  var coordinatorId = -1
+  val coordinatorLocater = new SimpleDistributedCoordinatorLocater
+  implicit val timeout = Timeout(5.second)
+  implicit val ec = context.dispatcher
+  Await.result(coordinatorManager ? DistributedCoordinatorRegistrationProtocol.Register(self), 5 seconds) match {
+    case DistributedCoordinatorRegistrationProtocol.AckOfRegister(id, coordinators) =>
+      coordinatorId = id
+      coordinatorLocater.setCoordinators(coordinators.map(_._2))
+      log.info(s"Successfully registered with coordinatorManager. I have received id $id and the list of coordinators: $coordinators")
+    case x => 
+      log.error(s"Failed to register with the coordinator manager, shutting down. Received result: $x")
+      // synchronous suicide
+      throw new RuntimeException(s"Failed to register with the coordinator manager, shutting down. Received result: $x")
+  }
 
   /**
    * Holds the mapping between the clients and the authorization requests
@@ -70,7 +93,6 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
    */
   val externalWorkQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
   val internalWorkQ = Queue.empty[(PolicyEvaluationRequest, ActorRef)]
-  
 
   /**
    * *********************************
@@ -79,8 +101,8 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
   val workers = new WorkerManager
   // create our workers
   1 to nbWorkers foreach { _ =>
-    workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, enableStatsDb, 
-        mockEvaluation, mockEvaluationDuration)) // TODO pass policy and attribute cache
+    workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, enableStatsDb,
+      mockEvaluation, mockEvaluationDuration)) // TODO pass policy and attribute cache
   }
 
   /**
@@ -122,6 +144,13 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
    * ACTOR FUNCTIONALITY
    */
   def receive = {
+    
+    /**
+     * From the DistributedCoordinatorManager
+     */
+    case DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(coordinators) =>      
+      coordinatorLocater.setCoordinators(coordinators.map(_._2))
+      log.debug(s"Received updated list of coordinators: $coordinators")
 
     /**
      * From a Worker.
@@ -184,7 +213,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
         // In case of intelligent clients, we should only have received this request
         // if we should manage the subject of the request. In case of unintelligent 
         // clients, we could forward the request to the appropriate coordinator.
-        coordinatorManager.whatShouldIManage(self, original) match {
+        coordinatorLocater.whatShouldIManage(self, original) match {
           case BOTH =>
             log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage both => queuing it immediately)")
             // add the attributes according to our administration
@@ -197,7 +226,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             val updated = concurrencyController.startForSubject(original)
             // ask the other coordinator to start the actual evaluation 
             // (the result will be sent directly to us)
-            coordinatorManager.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
+            coordinatorLocater.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
           case _ =>
             // we could forward here. For now: log an error
             log.error(s"[Evaluation ${id}] Received authorization request for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
@@ -255,7 +284,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
       //			we manage both the subject and the resource would lead to errors if we
       //			then send a message to ourselves to commit for the subject/resource
       //			after having committed for the resource/subject).
-      coordinatorManager.whatShouldIManage(self, original) match {
+      coordinatorLocater.whatShouldIManage(self, original) match {
         case BOTH =>
           // try to commit for both the subject and the resource
           if (concurrencyController.commitForBoth(result)) {
@@ -298,7 +327,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             // Note: the result of getCoordinatorForResource() should be the same as at 
             // the start (in other words, the system currently does not support adding or
             // removing coordinators at run-time)
-            coordinatorManager.getCoordinatorForResource(original.resourceId) ! TryCommitForResource(filteredResult)
+            coordinatorLocater.getCoordinatorForResource(original.resourceId) ! TryCommitForResource(filteredResult)
           } else {
             log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for the SUBJECT, restarting it")
             // the commit failed => restart the evaluation (add the necessary
@@ -309,7 +338,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
             val updated = concurrencyController.startForSubject(original)
             // ask the other coordinator to restart as well. This coordinator will 
             // redo the actual evaluation (but the result will be sent to us).
-            coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
+            coordinatorLocater.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
           }
         case x =>
           // this should never happen
@@ -361,7 +390,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
       // 1. remove the request from our administration
       id2original.remove(id)
       // 2. finalize tentative attribute updates
-      concurrencyController.finalizeCommitForSubject(result.id)      
+      concurrencyController.finalizeCommitForSubject(result.id)
       // 3. send result to client
       val client = clients(id)
       client ! AuthorizationDecision(result.result.decision)
@@ -388,7 +417,7 @@ class DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWork
       val updated = concurrencyController.restartForSubject(original)
       // ask the other coordinator to restart as well. This coordinator will 
       // start the actual evaluation (but the result will be sent to us)
-      coordinatorManager.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
+      coordinatorLocater.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
 
     /**
      * An update worker has finished an update.
