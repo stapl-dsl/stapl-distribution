@@ -234,7 +234,7 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
         
         if(printIndividualMeasurements) {
           for((time,duration) <- measurementsLastInterval) {
-            println(s"$time%2.3f $duration")
+            println(f"$time%.3f $duration%.3f")
           }
         }
 

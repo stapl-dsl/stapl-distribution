@@ -13,7 +13,7 @@ case class EvaluationEnded(duration: Double = -1)
 class StatisticsActor(name: String, intervalSize: Int, nbIntervals: Int, printIndividualMeasurements: Boolean = false) extends Actor {
 
   //val stats = new ThroughputStatistics(name, intervalSize, nbIntervals)
-  val stats = new ThroughputAndLatencyStatistics(name, intervalSize, nbIntervals)  
+  val stats = new ThroughputAndLatencyStatistics(name, intervalSize, nbIntervals, printIndividualMeasurements)  
   
   def receive = {
 
