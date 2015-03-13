@@ -179,6 +179,12 @@ class DistributedCoordinatorManager extends Actor with ActorLogging {
    */
   def receive = {
 
+    /**
+     * From a new coordinator.
+     *
+     * Notice that there is a difference between $coordinator and $sender in case
+     * this message was sent using ?.
+     */
     case DistributedCoordinatorRegistrationProtocol.Register(coordinator) =>
       // add the coordinator to the administration
       coordinators += ((idCounter, coordinator))
@@ -191,5 +197,16 @@ class DistributedCoordinatorManager extends Actor with ActorLogging {
       }
       // increment the id counter
       idCounter += 1
+
+    /**
+     * From a new client.
+     */
+    case ClientRegistrationProtocol.GetListOfCoordinators =>
+      sender ! ClientRegistrationProtocol.ListOfCoordinators(coordinators.toList)
+
+    /**
+     *
+     */
+    case x => log.error(s"Unknown message received: $x")
   }
 }

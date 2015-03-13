@@ -114,7 +114,8 @@ object DistributedCoordinatorRegistrationProtocol {
   case class ListOfCoordinatorsWasUpdated(coordinators: List[(Int,ActorRef)]) 
 }
 object ClientRegistrationProtocol {
-  case class Register
+  
+  case class GetListOfCoordinators(client: ActorRef)
   
   /**
    * @param	coordinators	
@@ -125,9 +126,5 @@ object ClientRegistrationProtocol {
    * because this order leads to the distribution of requests and this distribution
    * should be the same on every node.
    */  
-  case class AckOfRegister(coordinators: List[(Int,ActorRef)])
-  
-  /**
-   * Note: for now, we do not update the list of coordinators for clients
-   */
+  case class ListOfCoordinators(coordinators: List[(Int,ActorRef)])
 }

@@ -21,19 +21,18 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.TestClientForCoordinatorGroup
-import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
 import stapl.distribution.util.StatisticsActor
-import com.hazelcast.core.Hazelcast
-import com.hazelcast.config.Config
 import org.slf4j.LoggerFactory
 import grizzled.slf4j.Logging
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.db.entities.ArtificialEntityManager
+import stapl.distribution.components.SimpleDistributedCoordinatorLocater
+import stapl.distribution.components.ClientRegistrationProtocol
 
 case class TestClientForDistributedCoordinatorsConfig(name: String = "not-provided",
-  hostname: String = "not-provided", port: Int = -1, 
+  hostname: String = "not-provided", port: Int = -1,
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
-  coordinatorIP: String = "not-provided",
+  coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1,
   logLevel: String = "INFO")
 
 object TestClientForDistributedCoordinatorsApp extends Logging {
@@ -58,16 +57,20 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
 
-      opt[String]("coordinator-ip") required () action { (x, c) =>
-        c.copy(coordinatorIP = x)
-      } text ("The ip address of the machine on which one of the distributed coordinators is running.")
+      opt[String]("coordinator-manager-ip") action { (x, c) =>
+        c.copy(coordinatorManagerIP = x)
+      } text ("The IP address of the coordinator manager in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
+
+      opt[Int]("coordinator-manager-port") action { (x, c) =>
+        c.copy(coordinatorManagerPort = x)
+      } text ("The port of the coordinator manager in the cluster. Only needed if coordinator-manager-port is given.")
 
       opt[String]("request-pool") action { (x, c) =>
         c.copy(requestPool = x)
       } validate { x =>
         if (requests.contains(x)) success else failure(s"Invalid value given for --requests. Possible values: $requests")
-      } text (s"The type of requests to send out. Possible values: ehealth = send out random requests from the ehealth entities, " + 
-          "artificial = send out random requests from a set of artificial entities of chosen size")
+      } text (s"The type of requests to send out. Possible values: ehealth = send out random requests from the ehealth entities, " +
+        "artificial = send out random requests from a set of artificial entities of chosen size")
 
       opt[Int]("nb-artificial-subjects") action { (x, c) =>
         c.copy(nbArtificialSubjects = x)
@@ -86,7 +89,7 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, TestClientForDistributedCoordinatorsConfig()) map { config =>      
+    parser.parse(args, TestClientForDistributedCoordinatorsConfig()) map { config =>
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.hostname}
@@ -99,13 +102,26 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
       LoggerFactory.getLogger("stapl.distribution").asInstanceOf[ch.qos.logback.classic.Logger]
         .setLevel(ch.qos.logback.classic.Level.valueOf(config.logLevel))
 
-      // set up hazelcast
-      val cfg = new Config()
-      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
-      val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+      val coordinatorLocater = new SimpleDistributedCoordinatorLocater
+      val selection = system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorManagerIP}:${config.coordinatorManagerPort}/user/distributed-coordinator-manager")
+      implicit val dispatcher = system.dispatcher
+      implicit val timeout = Timeout(5.second)
+      val coordinatorManager = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+      Await.result(coordinatorManager ? ClientRegistrationProtocol.GetListOfCoordinators, 5.seconds) match {
+        case ClientRegistrationProtocol.ListOfCoordinators(coordinators) =>
+          coordinatorLocater.setCoordinators(coordinators.map(_._2))
+          if (coordinators.size == 0) {
+            println("Received the list of coordinators, but no coordinators found. Shutting down")
+            system.shutdown
+            return
+          }
+          println(s"Successfully received the list of coordinators: $coordinators")
+        case x =>
+          println(s"Failed to get the list of coordinators, shutting down. Received result: $x")
+          system.shutdown
+          return
+      }
 
-      val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
@@ -113,16 +129,9 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
-      val client1 = system.actorOf(Props(classOf[TestClientForCoordinatorGroup], coordinators, em), "client1")
+      val client1 = system.actorOf(Props(classOf[TestClientForCoordinatorGroup], coordinatorLocater, em), "client1")
 
-      if (coordinators.coordinators.size == 0) {
-        println("No coordinators found, shutting down")
-        hazelcast.shutdown()
-        system.shutdown
-        return
-      }
-
-      info(s"Test client started at ${config.hostname}:${config.port} for a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      info(s"Test client started at ${config.hostname}:${config.port} for a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")
       client1 ! "go"
     } getOrElse {
       // arguments are bad, error message will have been displayed
