@@ -33,7 +33,7 @@ abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
   override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
 
   /**
-   * Helper methods to update the local list to the values in Hazelcast
+   * Helper methods to add a coordinator to the list of coordinators.
    */
   protected def addCoordinator(x: (String, Int)) = {
     val (ip, port) = x
@@ -47,6 +47,15 @@ abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
     //        t.printStackTrace()
   }
 
+  /**
+   * Helper method to update the whole list of coordinators at once.
+   * This method is NOT thread-safe if the list is being read at the same time
+   * as well. 
+   */
+  def setCoordinators(cs: List[ActorRef]) {
+    coordinators.clear
+    coordinators ++= cs
+  }
 }
 
 /**
@@ -57,12 +66,14 @@ abstract class DistributedCoordinatorManager(actorSystem: ActorSystem)
  * network communication to read the list). In order to stay up-to-date with
  * new members, we also listen to events on the list.
  *
- * Note TODO: we currently do not take into account coordinator failure
+ * Note: TODO: we currently do not take into account coordinator failure
  *
- * Note: we currently do not support adding a new coordinator when the system is
+ * Note: TODO: we currently do not support adding a new coordinator when the system is
  * in operation, i.e., the system will probably work correctly, but correct concurrency
  * control is not guaranteed for the evaluation that are ongoing when a coordinator
  * joins.
+ *
+ * FIXME there seems to be a race condition here: the order is not the same on every node every time...
  */
 class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
   extends DistributedCoordinatorManager(actorSystem) with ItemListener[(String, Int)] {
@@ -102,14 +113,6 @@ class HazelcastDistributedCoordinatorManager(hazelcast: HazelcastInstance, actor
     backend.add((ip, port))
     // the registered actor will be added to $coordinators by itemAdded()
   }
-
-  /**
-   * Sends the given request to the coordinator responsible for managing
-   * the subject of this request.
-   */
-  override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
-    getCoordinatorForSubject(request.subjectId)
-  }
 }
 
 /**
@@ -125,50 +128,5 @@ class HardcodedDistributedCoordinatorManager(actorSystem: ActorSystem, coordinat
   def initialize() {
     coordinators.foreach(location =>
       addCoordinator(location))
-  }
-}
-
-/**
- * A client for a distributed coordinator group on one or multiple other nodes. This client
- * fetches the concurrent coordinators on that node and sends authorization requests to the appropriate
- * coordinator on that node (this is the coordinator that manages the subject of the request).
- *
- * FIXME there seems to be a race condition here: the order is not the same on every node every time...
- */
-class HazelcastRemoteDistributedCoordinatorGroup(hazelcast: HazelcastInstance, actorSystem: ActorSystem)
-  extends CoordinatorGroup with CoordinatorLocater with Logging {
-
-  import scala.collection.JavaConversions._
-  import akka.serialization._
-
-  /**
-   * The Hazelcast list of IP addresses and ports on which Akka coordinators are listening.
-   */
-  private val backend = hazelcast.getList[(String, Int)]("stapl-coordinators")
-
-  override val coordinators = scala.collection.mutable.ListBuffer[ActorRef]()
-
-  // set up the initial list of coordinators based on the list in Hazelcast
-  backend foreach { addCoordinator(_) }
-
-  /**
-   * Helper methods to update the local list to the values in Hazelcast
-   */
-  private def addCoordinator(x: (String, Int)) = {
-    val (ip, port) = x
-    // FIXME dit klopt niet meer
-    val selection = actorSystem.actorSelection(s"akka.tcp://STAPL-coordinator@$ip:$port/user/coordinator")
-    implicit val dispatcher = actorSystem.dispatcher
-    val coordinator = Await.result(selection.resolveOne(3.seconds), 5.seconds)
-    coordinators += coordinator
-    info(s"Found and added coordinator at $x")
-  }
-
-  /**
-   * Sends the given request to the coordinator responsible for managing
-   * the subject of this request.
-   */
-  override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
-    getCoordinatorForSubject(request.subjectId)
   }
 }

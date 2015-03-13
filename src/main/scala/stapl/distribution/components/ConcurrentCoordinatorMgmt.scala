@@ -40,7 +40,7 @@ trait CoordinatorGroup {
 /**
  * Trait used for locating coordinators.
  */
-trait CoordinatorLocater extends Logging {
+trait CoordinatorLocater extends CoordinatorGroup with Logging {
 
   /**
    * The list of coordinators
@@ -74,7 +74,7 @@ trait CoordinatorLocater extends Logging {
    * Sends the given request to the coordinator responsible for managing
    * the subject of this request.
    */
-  def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
+  override def getCoordinatorFor(request: ClientCoordinatorProtocol.AuthorizationRequest): ActorRef = {
     getCoordinatorForSubject(request.subjectId)
   }
 

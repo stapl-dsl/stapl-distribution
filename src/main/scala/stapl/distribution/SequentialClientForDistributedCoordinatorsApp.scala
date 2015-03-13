@@ -18,7 +18,7 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.SequentialClientForConcurrentCoordinators
-import stapl.distribution.components.HazelcastRemoteDistributedCoordinatorGroup
+import stapl.distribution.components.HazelcastDistributedCoordinatorManager
 import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
 import stapl.distribution.util.StatisticsActor
 import com.hazelcast.config.Config
@@ -121,12 +121,12 @@ object SequentialClientForDistributedCoordinatorsApp {
       cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
 
-      val coordinators = new HazelcastRemoteDistributedCoordinatorGroup(hazelcast, system)
+      val coordinators = new HazelcastDistributedCoordinatorManager(hazelcast, system)
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor], "Continuous overload clients", config.statsInterval, 10))
+      val stats = system.actorOf(Props(classOf[StatisticsActor], "Continuous overload clients", config.statsInterval, 10, true))
       val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForCoordinatorGroup], coordinators, em, stats)), "clients")
 
       if (coordinators.coordinators.size == 0) {
