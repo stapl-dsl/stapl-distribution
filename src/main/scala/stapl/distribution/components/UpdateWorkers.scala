@@ -19,9 +19,8 @@ import scala.collection.mutable.HashMap
 import stapl.core.ConcreteValue
 import grizzled.slf4j.Logging
 import stapl.core.ConcreteChangeAttributeObligationAction
-import stapl.core.ConcreteChangeAttributeObligationAction
 import scala.collection.mutable.ListBuffer
-import stapl.core.ConcreteChangeAttributeObligationAction
+import java.util.NoSuchElementException
 
 /**
  * Actor used for processing attribute updates asynchronously from the
@@ -118,6 +117,7 @@ abstract class UpdatedAttributeStore extends Logging {
       evaluationId2TentativeAttributeUpdates(evaluationId) = ListBuffer(update)
       tentativeAttributeUpdate2EvaluationIds(key) = ListBuffer()
     }
+    debug(s"[Evaluation $evaluationId] Stored tentative attribute update: $update")
   }
 
   private def cleanupTentative(evaluationId: String) {
@@ -143,6 +143,9 @@ abstract class UpdatedAttributeStore extends Logging {
       }
       // clean up the administration
       cleanupTentative(evaluationId)
+      debug(s"[Evaluation $evaluationId] Aborted tentative attribute updates")
+    } else {
+      debug(s"[Evaluation $evaluationId] Aborted tentative attribute updates (there were none)")
     }
     // return
     evaluationsThatShouldBeRestarted
@@ -157,8 +160,10 @@ abstract class UpdatedAttributeStore extends Logging {
     if (evaluationId2TentativeAttributeUpdates.contains(evaluationId)) {
       val toReturn = evaluationId2TentativeAttributeUpdates(evaluationId)
       cleanupTentative(evaluationId)
+      debug(s"[Evaluation $evaluationId] Finalized tentative attribute updates")
       toReturn
     } else {
+      debug(s"[Evaluation $evaluationId] Finalized tentative attribute updates (there were none)")
       List[ConcreteChangeAttributeObligationAction]()
     }
   }
@@ -359,8 +364,8 @@ class UpdatedAttributeCache(size: Int = 1000) extends UpdatedAttributeStore {
             try {
               tentativeAttributeUpdate2EvaluationIds((request.subjectId, attribute)) += request.id
             } catch {
-              case e: NoSuchElementException => 
-                println(e)
+              case e: NoSuchElementException =>
+                debug(s"[Evaluation ${request.id}] NoSuchElementException for ($attribute,$value,$status)", e)
                 throw e
             }
             debug(s"[Evaluation ${request.id}] Added the following TENTATIVELY cached attribute because of ongoing updates on the SUBJECT: ($attribute,$value)")

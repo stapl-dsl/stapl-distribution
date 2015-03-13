@@ -28,12 +28,14 @@ import stapl.distribution.db.MockAttributeDatabaseConnectionPool
 import stapl.distribution.db.InMemoryAttributeDatabaseConnectionPool
 import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
 import stapl.core.AbstractPolicy
-import stapl.core._
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration._
 import akka.util.Timeout
 import scala.util.{ Success, Failure }
 import java.util.concurrent.CountDownLatch
+import stapl.core.SUBJECT
+import stapl.core.RESOURCE
+import stapl.core.Permit
 
 class DistributedCoordinatorTest extends AssertionsForJUnit {
 
@@ -88,10 +90,12 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
   }
 
   def shutdownActorSystems = {
-    actorSystems.foreach(_.shutdown)
+    actorSystems.foreach {
+      case x =>
+        x.shutdown
+        x.awaitTermination(2.seconds) // to make it synchronous
+    }
     actorSystems.clear
-    // wait for the systems to shut down
-    Thread.sleep(200)
   }
 
   def resetDB(nbSubjects: Int, nbResources: Int) = {

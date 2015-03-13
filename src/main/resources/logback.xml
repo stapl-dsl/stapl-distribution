@@ -9,7 +9,7 @@
   
   <logger name="stapl.core" level="OFF"/>
   
-  <logger name="stapl.distribution" level="INFO"/>
+  <logger name="stapl.distribution" level="DEBUG"/>
 
   <root level="INFO">
     <appender-ref ref="STDOUT" />

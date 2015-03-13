@@ -371,6 +371,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
             // these can conflict. We should only store these for the SUBJECT
             change.attribute.cType match {
               case stapl.core.SUBJECT =>
+                updatedAttributeStore.storeTentative(request.id, change)
                 subjectId2Evaluation(request.subjectId) foreach { x =>
                   // here we store the possibly conflicting attribute update tentatively,
                   // which means that conflicts will be handled as before, meaning that  
@@ -381,8 +382,7 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
                   // attribute in their attribute cache are restarted if this turned out to be
                   // reverted by the coordinator of the resource
                   updatesWhileEvaluating(x.id) += change.attribute
-                  updatedAttributeStore.storeTentative(request.id, change)
-                  log.debug(s"[Evaluation ${id}] Stored the possibly conflicting attribute update TENTATIVELY for the SUBJECT with evaluation ${x.id}")
+                  log.debug(s"[Evaluation ${id}] Stored the possibly conflicting attribute update $change TENTATIVELY for the SUBJECT with evaluation ${x.id}")
                 }
               case stapl.core.RESOURCE =>
               // Nothing to do, this attribute will be handled by the other coordinator
