@@ -153,7 +153,7 @@ class EhealthEntityManager extends EntityManager with Logging {
   // 23. Maarten is admitted in the nurse unit of ElderCareNurse2
   // and she is responsible for Maarten
   elderCareNurse2.patientsAdmittedInNurseUnit ::= maarten
-  elderCareNurse2.patientsAdmittedInNurseUnit ::= maarten
+  elderCareNurse2.responsiblePatients ::= maarten
 
   /**
    * ********************************
@@ -161,36 +161,36 @@ class EhealthEntityManager extends EntityManager with Logging {
    * ********************************
    */
     
-//  val requests = scala.collection.mutable.Map[(Person, String, Resource, List[(Attribute, ConcreteValue)]), Result]()
-//  requests((cardiologist1, "view", maartenStatus, List())) = Deny
-//  requests((cardiologist1, "view", bartStatus, List())) = Deny
-//  requests((cardiologist1, "view", wouterStatus, List())) = Permit
-//  requests((cardiologist2, "view", maartenStatus, List())) = Permit
-//  requests((cardiologist3, "view", maartenStatus, List())) = Permit
-//  requests((cardiologist4, "view", maartenStatus, List())) = Deny
-//  requests((cardiologistHead, "view", maartenStatus, List())) = Permit
-//  requests((cardiologistTriggered, "view", maartenStatus, List())) = Permit  
-//  requests((emergencySpecialist1, "view", maartenStatus, List())) = Deny
-//  requests((emergencySpecialist1, "view", bartStatus, List())) = Permit
-//  requests((emergencySpecialist1, "view", wouterStatus, List())) = Permit
-//  requests((gp1, "view", maartenStatus, List())) = Permit
-//  requests((gp2, "view", maartenStatus, List())) = Permit
-//  requests((gp3, "view", maartenStatus, List())) = Permit
-//  requests((gp4, "view", maartenStatus, List())) = Deny
-//  requests((gpHasConsultation, "view", maartenStatus, List())) = Permit
-//  requests((oncologist1, "view", maartenStatus, List())) = Deny  
-//  requests((cardiologyNurse1, "view", maartenStatus, List())) = Deny
-//  requests((cardiologyNurse2, "view", maartenStatus, List())) = Deny
-//  requests((cardiologyNurse3, "view", maartenStatus, List())) = Permit
-//  requests((cardiologyNurse3, "view", bartStatus, List())) = Deny
-//  requests((cardiologyNurse3, "view", ernaStatus, List())) = Deny
-//  requests((cardiologyNurse3, "view", wouterStatus, List())) = Permit
-//  requests((elderCareNurse1, "view", maartenStatus, List())) = Deny
-//  requests((elderCareNurse2, "view", maartenStatus, List())) = Permit
-//  requests((oncologyNurse, "view", maartenStatus, List())) = Deny  
-//  requests((maarten, "view", maartenStatus, List())) = Permit
-//  requests((maarten, "view", wouterStatus, List())) = Deny
-//  requests((wouter, "view", wouterStatus, List())) = Deny  
+  val requests = scala.collection.mutable.Map[(Person, String, Resource, List[(Attribute, ConcreteValue)]), Result]()
+  requests((cardiologist1, "view", maartenStatus, List())) = Deny
+  requests((cardiologist1, "view", bartStatus, List())) = Deny
+  requests((cardiologist1, "view", wouterStatus, List())) = Permit
+  requests((cardiologist2, "view", maartenStatus, List())) = Permit
+  requests((cardiologist3, "view", maartenStatus, List())) = Permit
+  requests((cardiologist4, "view", maartenStatus, List())) = Deny
+  requests((cardiologistHead, "view", maartenStatus, List())) = Permit
+  requests((cardiologistTriggered, "view", maartenStatus, List())) = Permit  
+  requests((emergencySpecialist1, "view", maartenStatus, List())) = Deny
+  requests((emergencySpecialist1, "view", bartStatus, List())) = Permit
+  requests((emergencySpecialist1, "view", wouterStatus, List())) = Permit
+  requests((gp1, "view", maartenStatus, List())) = Permit
+  requests((gp2, "view", maartenStatus, List())) = Permit
+  requests((gp3, "view", maartenStatus, List())) = Permit
+  requests((gp4, "view", maartenStatus, List())) = Deny
+  requests((gpHasConsultation, "view", maartenStatus, List())) = Permit
+  requests((oncologist1, "view", maartenStatus, List())) = Deny  
+  requests((cardiologyNurse1, "view", maartenStatus, List())) = Deny
+  requests((cardiologyNurse2, "view", maartenStatus, List())) = Deny
+  requests((cardiologyNurse3, "view", maartenStatus, List())) = Permit
+  requests((cardiologyNurse3, "view", bartStatus, List())) = Deny
+  requests((cardiologyNurse3, "view", ernaStatus, List())) = Deny
+  requests((cardiologyNurse3, "view", wouterStatus, List())) = Permit
+  requests((elderCareNurse1, "view", maartenStatus, List())) = Deny
+  requests((elderCareNurse2, "view", maartenStatus, List())) = Permit
+  requests((oncologyNurse, "view", maartenStatus, List())) = Deny  
+  requests((maarten, "view", maartenStatus, List())) = Permit
+  requests((maarten, "view", wouterStatus, List())) = Deny
+  requests((wouter, "view", wouterStatus, List())) = Deny  
 
   /**
    * ********************************

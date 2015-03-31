@@ -14,7 +14,7 @@ import stapl.core.Attribute
 import stapl.distribution.util.Timer
 import org.joda.time.LocalDateTime
 
-object PerformanceTest extends App {
+object NoDBPerformanceTest extends App {
 
   import EhealthPolicy._
   // set up the PDP, use an empty attribute finder since we will provide all attributes in the request
