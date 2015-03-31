@@ -24,6 +24,7 @@ import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.Counter
 import stapl.distribution.db.entities.EntityManager
+import stapl.distribution.util.RequestGenerator
 
 class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
@@ -90,8 +91,8 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
   log.info(s"Sequential client created: $this")
 }
 
-class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup, 
-    em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
+class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCoordinatorGroup,
+  em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
 
@@ -154,8 +155,8 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   log.info(s"Sequential client created: $this")
 }
 
-class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup, 
-    em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
+class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
+  em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
 
@@ -220,8 +221,8 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
   log.info(s"Sequential client created: $this")
 }
 
-class InitialPeakClient(coordinator: ActorRef, nb: Int,  
-    em: EntityManager) extends Actor with ActorLogging {
+class InitialPeakClient(coordinator: ActorRef, nb: Int,
+  em: EntityManager) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -250,8 +251,8 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int,
   log.info(s"Intial peak client created: $this")
 }
 
-class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int,  
-    em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
+class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int,
+  requestGenerator: RequestGenerator, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -262,11 +263,15 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
   val timer = new Timer
   var waitingFor = nb
 
+  // the sender that we will notify when the peak has been processed
+  var s: ActorRef = null
+
   def receive = {
     case "go" =>
+      s = sender
       timer.start
       for (i <- 1 to nb) {
-        val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+        val request = requestGenerator.nextRequest
         val coordinator = coordinators.getCoordinatorFor(request)
         coordinator ! request
       }
@@ -278,6 +283,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
       if (waitingFor == 0) {
         timer.stop()
         log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms")
+        s ! "done"
       }
     case x => log.error(s"Received unknown message: $x")
   }
@@ -285,8 +291,8 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
   //log.info(s"Intial peak client created: $this")
 }
 
-class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup,  
-    em: EntityManager, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
+class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup,
+  em: EntityManager, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -334,8 +340,8 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
 /**
  * A simple client for testing that only sends a request when the user indicates this.
  */
-class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,  
-    em: EntityManager) extends Actor with ActorLogging {
+class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
+  em: EntityManager) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._

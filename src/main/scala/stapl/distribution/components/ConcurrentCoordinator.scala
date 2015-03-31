@@ -605,7 +605,25 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
 }
 
 /**
- *
+ * A coordinator that can collaborate with other coordinators. This ConcurrentCoordinator
+ * is developed in order to be able to set up a number concurrent coordinators (the number
+ * depends on the expected load) that work with the same set of Foremen. There are two 
+ * differences with the DistributedCoordinator: 
+ * 1. Each DistributedCoordinator manages its own workers, i.e., there is no shared pool of
+ * 	  workers or foremen. 
+ * 2. As a result of 1., the DistributedCoordinator also manages its own workers, i.e., 
+ *    does not employ a Foreman.
+ * 
+ * This class was developed in order to be able to scale out the coordination on a single node
+ * so that a single coordinator could manage multiple other nodes that each host a Foreman with
+ * multiple workers. However, work on this class has shifted to the DistributedCoordinator, which
+ * manages its own workers (and therefore is a simpler set-up) and can be scaled out as well by 
+ * just starting up multiple DistributedCoordinators on the same node.  
+ * 
+ * FIXME: This class is INCOMPLETE for now. It should not be hard to unify this code with
+ * the code of the DistributedCoordinator: a Worker and the ForemanManager should just have
+ * the same interface/behave the same. IN ANY CASE, USE THE CODE OF THE DISTRIBUTEDCOORDINATOR,
+ * the ConcurrentCoordinator is outdated.
  */
 class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int,
   coordinatorManager: CoordinatorLocater, foremanManager: ActorRef) extends Actor with ActorLogging {
@@ -865,7 +883,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id FAILED for the RESOURCE => restart")
       // the commit succeeded   
       // 1. destroy tentative attribute updates and mark evaluations that used them to be restarted as well
-      // MAJOR TODO: THIS CODE SHOULD NOT BE DUPLICATED WITH DISTRIBUTED COORDINATOR
+      // TODO: THIS CODE SHOULD NOT BE DUPLICATED WITH DISTRIBUTED COORDINATOR
       ???
       // 2. restart
       val original = id2original(id)
