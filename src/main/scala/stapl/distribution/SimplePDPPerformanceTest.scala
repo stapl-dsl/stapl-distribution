@@ -23,20 +23,31 @@ import stapl.core.Decision
 import stapl.distribution.db.entities.ehealth.Person
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 
+case class SimplePDPPerformanceTestConfig(databaseIP: String = "not-provided", databasePort: Int = -1,
+  nbRuns: Int = -1)
+
 object SimplePDPPerformanceTest extends App with Logging {
 
-  val parser = new scopt.OptionParser[DBTestConfig]("scopt") {
+  val parser = new scopt.OptionParser[SimplePDPPerformanceTestConfig]("scopt") {
+
     head("Database test: connect to the database directly and read the same value over and over")
+
     opt[String]("database-ip") required () action { (x, c) =>
       c.copy(databaseIP = x)
     } text ("The IP address of the machine on which the database containing the attributes is running.")
+
     opt[Int]("database-port") required () action { (x, c) =>
       c.copy(databasePort = x)
     } text ("The port on which the database containing the attributes is listening.")
+
+    opt[Int]("nb-runs") required () action { (x, c) =>
+      c.copy(nbRuns = x)
+    } text ("The number of runs to do for each request.")
+
     help("help") text ("prints this usage text")
   }
   // parser.parse returns Option[C]
-  parser.parse(args, DBTestConfig()) map { config =>
+  parser.parse(args, SimplePDPPerformanceTestConfig()) map { config =>
     import EhealthPolicy._
     val em = new EhealthEntityManager
 
@@ -52,19 +63,20 @@ object SimplePDPPerformanceTest extends App with Logging {
     val pdp = new PDP(naturalPolicy, attributeFinder)
 
     // do the tests
-    val nbRuns = 1
     val timer = new Timer()
     for ((request, shouldBe) <- em.requests) {
-      for (i <- 0 to nbRuns) {
-        implicit val (subject, action, resource, extraAttributes) = request
+      info(s"Starting request ${request}")
+      implicit val (subject, action, resource, extraAttributes) = request
+      for (i <- 0 to config.nbRuns) {
         val r = timer time {
           pdp.evaluate(subject.id, action, resource.id, extraAttributes: _*)
         }
         assert(shouldBe, r)
-        info("===================================================")
+        debug("===================================================")
       }
+      info(s"Request (${subject.id},$action,${resource.id},$extraAttributes): mean after ${config.nbRuns} runs = ${timer.mean} ms")
+      timer.reset
     }
-    println(s"Mean after $nbRuns runs = ${timer.mean} ms")
   } getOrElse {
     // arguments are bad, error message will have been displayed
   }
@@ -77,14 +89,14 @@ object SimplePDPPerformanceTest extends App with Logging {
     EhealthEntityManager().persist(db)
     db.commit
     db.close
-    info("Done")
+    info("Persisting done")
   }
 
   def assert(wanted: Result, actual: Result)(implicit subject: Person, action: String, resource: stapl.distribution.db.entities.ehealth.Resource, extraAttributes: List[(stapl.core.Attribute, stapl.core.ConcreteValue)]) = {
     if (wanted.decision != actual.decision) {
       throw new AssertionError(s"Wanted ${wanted.decision} but was ${actual.decision} for request (${subject.id},$action,${resource.id},$extraAttributes)")
     } else {
-      info(s"Request (${subject.id},$action,${resource.id},$extraAttributes) OK")
+      debug(s"Request (${subject.id},$action,${resource.id},$extraAttributes) OK")
     }
   }
 }
