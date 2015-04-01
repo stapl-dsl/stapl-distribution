@@ -18,21 +18,25 @@ import stapl.core.AbstractPolicy
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 import stapl.distribution.components.DistributedCoordinator
-import stapl.distribution.components.HardcodedDistributedCoordinatorLocater
+import stapl.distribution.components.CoordinatorLocater
 import stapl.examples.policies.EhealthPolicy
 import stapl.distribution.policies.ConcurrencyPolicies
 import stapl.distribution.components.DistributedCoordinatorManager
+import stapl.distribution.components.FixedNumberCoordinatorsDistributedCoordinatorManager
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import grizzled.slf4j.Logging
 import stapl.distribution.util.StatisticsActor
 import stapl.distribution.components.InitialPeakClientForCoordinatorGroup
 import stapl.distribution.util.Ehealth29RequestsGenerator
+import stapl.distribution.util.EhealthRandomRequestGenerator
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
 import stapl.core.Decision
+import stapl.distribution.components.ClientRegistrationProtocol
+import stapl.distribution.components.SimpleDistributedCoordinatorLocater
 
 case class MultipleLocalCoordinatorsPerformanceTestConfig(nbCoordinators: Int = -1, nbWorkersPerCoordinator: Int = -1,
   nbUpdateWorkers: Int = -1, nbRequestsPerCoordinator: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
@@ -110,14 +114,16 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
       for (nb <- 1 to config.nbCoordinators) {
         info("==================================")
         info(s"Starting test with $nb coordinators")
-        val (system, coordinatorLocater) = setupCoordinators(config.copy(nbCoordinators = nb))
+        val (system, coordinatorLocater) = setupCoordinators(config.copy(nbCoordinators = nb)).get
 
         implicit val timeout = Timeout(3600 second)
         implicit val ec = system.dispatcher
 
         // no stats actor, just print out statistics at the end
         val stats = system.actorOf(Props.empty)
-        val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinatorLocater, config.nbRequestsPerCoordinator * config.nbCoordinators, Ehealth29RequestsGenerator, stats), "client")
+        //val requestGenerator = Ehealth29RequestsGenerator
+        val requestGenerator = EhealthRandomRequestGenerator
+        val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinatorLocater, config.nbRequestsPerCoordinator * nb, requestGenerator, stats), "client")
         val f = client ? "go"
         // wait for the "done" back (there should only be one result sent back here)
         Await.result(f, 3600 seconds)
@@ -132,37 +138,38 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
     }
   }
 
-  private def startLocalActorSystem(name: String, port: Int) = {
+  private def startLocalActorSystem(name: String, port: Int, logLevel: String) = {
     val defaultConf = ConfigFactory.load()
     val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = 127.0.0.1
         akka.remote.netty.tcp.port = $port
-        akka.loglevel = DEBUG
+        akka.loglevel = $logLevel
       """).withFallback(defaultConf)
     ActorSystem(name, customConf)
   }
 
   val actorSystems = scala.collection.mutable.ListBuffer[ActorSystem]()
 
-  def setupCoordinators(config: MultipleLocalCoordinatorsPerformanceTestConfig) = {
+  def setupCoordinators(config: MultipleLocalCoordinatorsPerformanceTestConfig): Option[(ActorSystem, CoordinatorLocater)] = {
     // set up the database
     val pool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
 
-    val clientSystem = startLocalActorSystem("STAPL-coordinator", 2552)
+    val clientSystem = startLocalActorSystem("STAPL-coordinator", 2552, config.logLevel)
     actorSystems += clientSystem
+
+    // set up the coordinator manager in the client system to which all the
+    // coordinators will register
+    val coordinatorManager = clientSystem.actorOf(Props(classOf[FixedNumberCoordinatorsDistributedCoordinatorManager], config.nbCoordinators), "distributed-coordinator-manager")
 
     // set up the coordinators
     val coordinatorLocations = (1 to config.nbCoordinators).map(id => ("127.0.0.1", 2553 + id))
-    val coordinatorManagers = scala.collection.mutable.ListBuffer[HardcodedDistributedCoordinatorLocater]()
     for (id <- 1 to config.nbCoordinators) {
-      val system = startLocalActorSystem("STAPL-coordinator", 2553 + id)
+      val system = startLocalActorSystem("STAPL-coordinator", 2553 + id, config.logLevel)
       actorSystems += system
-      val coordinatorManager = new HardcodedDistributedCoordinatorLocater(system, coordinatorLocations: _*)
-      coordinatorManagers += coordinatorManager
 
       // set up the coordinator
-      /*DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
-		  pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
+      /*DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
+		  pool: AttributeDatabaseConnectionPool, coordinatorManager: ActorRef,
 		  enableStatsIn: Boolean = false, enableStatsOut: Boolean = false, statsOutInterval: Int = 2000,
 		  enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
 		  mockDecision: Boolean = false, mockEvaluation: Boolean = false,
@@ -171,16 +178,31 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
         config.nbWorkersPerCoordinator, config.nbUpdateWorkers, pool, coordinatorManager,
         false, false, -1, config.enableStatsWorkers,
         config.enableStatsDb, config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
+    }    
+    
+    // the implicits for later on
+    implicit val dispatcher = clientSystem.dispatcher
+    implicit val timeout = Timeout(5.second)
+    
+    // set up the coordinator locator
+    val coordinatorLocater = new SimpleDistributedCoordinatorLocater
+    Await.result(coordinatorManager ? ClientRegistrationProtocol.GetListOfCoordinators, 5.seconds) match {
+      case ClientRegistrationProtocol.ListOfCoordinators(coordinators) =>
+        // we will only receive this message when all coordinators have registered
+        coordinatorLocater.setCoordinators(coordinators.map(_._2))
+        if (coordinators.size == 0) {
+          println("Received the list of coordinators, but no coordinators found. Shutting down")
+          shutdownActorSystems
+          return None
+        }
+        println(s"Successfully received the list of coordinators: $coordinators")
+      case x =>
+        println(s"Failed to get the list of coordinators, shutting down. Received result: $x")
+        shutdownActorSystems
+        return None
     }
 
-    // only now initialize the coordinator managers
-    coordinatorManagers.foreach(_.initialize)
-
-    // set up the client
-    val coordinators = new HardcodedDistributedCoordinatorLocater(clientSystem, coordinatorLocations: _*)
-    coordinators.initialize
-
-    (clientSystem, coordinators)
+    Some(clientSystem, coordinatorLocater)
   }
 
   def shutdownActorSystems = {

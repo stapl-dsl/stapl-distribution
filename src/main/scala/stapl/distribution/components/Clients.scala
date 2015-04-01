@@ -277,12 +277,11 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
-      println("decision receive")
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
       log.debug(s"Waiting for: $waitingFor")
       if (waitingFor == 0) {
         timer.stop()
-        log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms")
+        log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms => average of ${nb.toDouble / timer.duration * 1000}%2.0f evaluations / sec")
         s ! "done"
       }
     case x => log.error(s"Received unknown message: $x")

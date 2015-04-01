@@ -77,7 +77,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
   //private val stats = new ThroughputStatistics
   private val inputStats = new ThroughputStatistics("Coordinator - in", 2000, 10, enableStatsIn)
   private val outputStats = new ThroughputStatistics("Coordinator - out", statsOutInterval, 10, enableStatsOut)
-  private val workerStats = new ThroughputAndLatencyStatistics("Workers", 2000, 10, enableStatsWorkers)
+  private val workerStats = new ThroughputAndLatencyStatistics("Workers", 2000, 10, false, enableStatsWorkers)
 
   /**
    * A timestamp generator for generating ids for the evaluations.
