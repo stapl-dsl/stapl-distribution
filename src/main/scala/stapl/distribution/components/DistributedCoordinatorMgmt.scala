@@ -210,3 +210,68 @@ class DistributedCoordinatorManager extends Actor with ActorLogging {
     case x => log.error(s"Unknown message received: $x")
   }
 }
+
+/**
+ * A coordinator manager that waits for a number of coordinators to register
+ * before giving the list of coordinators to clients.
+ *
+ * IMPORTANT NOTE: for now, the implementation is not thread-safe, does not take failures into account and
+ * 		does not update the list of coordinators atomically.
+ * 		Bottom line: only add coordinators before requests are sent, do not remove coordinators.
+ */
+class FixedNumberCoordinatorsDistributedCoordinatorManager(nbCoordinators: Int) extends Actor with ActorLogging {
+
+  private var idCounter = 0
+
+  private val coordinators = ListBuffer[(Int, ActorRef)]()
+
+  private val waitingClients = ListBuffer[ActorRef]()
+
+  /**
+   * *********************************
+   * ACTOR FUNCTIONALITY
+   */
+  def receive = {
+
+    /**
+     * From a new coordinator.
+     *
+     * Notice that there is a difference between $coordinator and $sender in case
+     * this message was sent using ?.
+     */
+    case DistributedCoordinatorRegistrationProtocol.Register(coordinator) =>
+      // add the coordinator to the administration
+      coordinators += ((idCounter, coordinator))
+      // ack to the manager of the new coordinator (*including* the new coordinator itself)
+      sender ! DistributedCoordinatorRegistrationProtocol.AckOfRegister(idCounter, coordinators.toList)
+      // notify all but the new coordinator of the update 
+      coordinators.init.foreach {
+        case (id, coordinator) =>
+          coordinator ! DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(coordinators.toList)
+      }
+      // increment the id counter
+      idCounter += 1
+      // notify waiting clients if this was the last coordinator
+      if(coordinators.size == nbCoordinators) {
+        for(client <- waitingClients) {
+          client ! ClientRegistrationProtocol.ListOfCoordinators(coordinators.toList)
+        }
+        waitingClients.clear
+      }
+
+    /**
+     * From a new client.
+     */
+    case ClientRegistrationProtocol.GetListOfCoordinators =>
+      if (coordinators.size == nbCoordinators) {
+        sender ! ClientRegistrationProtocol.ListOfCoordinators(coordinators.toList)
+      } else {
+        waitingClients += sender
+      }
+
+    /**
+     *
+     */
+    case x => log.error(s"Unknown message received: $x")
+  }
+}

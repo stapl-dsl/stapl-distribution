@@ -36,6 +36,9 @@ import java.util.concurrent.CountDownLatch
 import stapl.core.SUBJECT
 import stapl.core.RESOURCE
 import stapl.core.Permit
+import akka.util.Timeout
+import scala.concurrent.Await
+import akka.pattern.ask
 
 class DistributedCoordinatorTest extends AssertionsForJUnit {
 
@@ -54,39 +57,56 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
   val actorSystems = scala.collection.mutable.ListBuffer[ActorSystem]()
   val pool = new InMemoryAttributeDatabaseConnectionPool
 
-  def setupCoordinators(policy: AbstractPolicy, nbCoordinators: Int) = {
+  def setupCoordinators(policy: AbstractPolicy, nbCoordinators: Int): Option[(ActorSystem, CoordinatorLocater)] = {
     val clientSystem = startLocalActorSystem("STAPL-coordinator", 2552)
     actorSystems += clientSystem
 
+    // set up the coordinator manager in the client system to which all the
+    // coordinators will register
+    val coordinatorManager = clientSystem.actorOf(Props(classOf[FixedNumberCoordinatorsDistributedCoordinatorManager], nbCoordinators), "distributed-coordinator-manager")
+
     // set up the coordinators
     val coordinatorLocations = (1 to nbCoordinators).map(id => ("127.0.0.1", 2553 + id))
-    val coordinatorManagers = scala.collection.mutable.ListBuffer[HardcodedDistributedCoordinatorLocater]()
     for (id <- 1 to nbCoordinators) {
       val system = startLocalActorSystem("STAPL-coordinator", 2553 + id)
       actorSystems += system
-      val coordinatorManager = new HardcodedDistributedCoordinatorLocater(system, coordinatorLocations: _*)
-      coordinatorManagers += coordinatorManager
 
       // set up the coordinator
-      /*DistributedCoordinator(coordinatorId: Long, policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
-		  pool: AttributeDatabaseConnectionPool, coordinatorManager: CoordinatorLocater,
+      /*DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
+		  pool: AttributeDatabaseConnectionPool, coordinatorManager: ActorRef,
 		  enableStatsIn: Boolean = false, enableStatsOut: Boolean = false, statsOutInterval: Int = 2000,
 		  enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
 		  mockDecision: Boolean = false, mockEvaluation: Boolean = false,
 		  mockEvaluationDuration: Int = 0)*/
-      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], id.toLong, policy,
+      val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], policy,
         1, 1, pool, coordinatorManager,
         false, false, -1, false, false, false, false, -1), "coordinator")
     }
 
-    // only now initialize the coordinator managers
-    coordinatorManagers.foreach(_.initialize)
+    // now construct the coordinatorLocater in the client system to reach
+    // the coordinators
+    // the implicits for later on
+    implicit val dispatcher = clientSystem.dispatcher
+    implicit val timeout = Timeout(5.second)
+    // the locater to store the coordinators in later on
+    val coordinatorLocater = new SimpleDistributedCoordinatorLocater
+    Await.result(coordinatorManager ? ClientRegistrationProtocol.GetListOfCoordinators, 5.seconds) match {
+      case ClientRegistrationProtocol.ListOfCoordinators(coordinators) =>
+        // we will only receive this message when all coordinators have registered
+        coordinatorLocater.setCoordinators(coordinators.map(_._2))
+        if (coordinators.size == 0) {
+          println("Received the list of coordinators, but no coordinators found. Shutting down")
+          shutdownActorSystems
+          return None
+        }
+        println(s"Successfully received the list of coordinators: $coordinators")
+      case x =>
+        println(s"Failed to get the list of coordinators, shutting down. Received result: $x")
+        shutdownActorSystems
+        return None
+    }
 
-    // set up the client
-    val coordinators = new HardcodedDistributedCoordinatorLocater(clientSystem, coordinatorLocations: _*)
-    coordinators.initialize
-
-    (clientSystem, coordinators)
+    Some(clientSystem, coordinatorLocater)
   }
 
   def shutdownActorSystems = {
@@ -116,18 +136,21 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
     for (nbSubjects <- 2 to 20; nbCoordinators <- 1 to 4) {
       resetDB(nbSubjects, nbResources)
 
-      val (system, coordinators) = setupCoordinators(max1ResourceAccess, nbCoordinators)
+      // set up the coordinators
+      val (system, coordinatorLocater) = setupCoordinators(max1ResourceAccess, nbCoordinators).get
 
+      // the implicits for later on
+      implicit val dispatcher = system.dispatcher
+      implicit val timeout = Timeout(5.second)
+
+      // do the tests
       val latch = new CountDownLatch(nbSubjects)
       val nbPermits = new AtomicInteger(0)
-
-      implicit val timeout = Timeout(2.second)
-      implicit val ec = system.dispatcher
 
       import ClientCoordinatorProtocol._
       for (i <- 1 to nbSubjects) {
         val request = AuthorizationRequest(s"subject$i", "view", "resource1")
-        val result = coordinators.getCoordinatorFor(request) ? request
+        val result = coordinatorLocater.getCoordinatorFor(request) ? request
         println("sent request")
         result onComplete {
           case Success(AuthorizationDecision(decision)) =>
@@ -160,18 +183,20 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
       println("========================")
       resetDB(nbSubjects, nbResources)
 
-      val (system, coordinators) = setupCoordinators(max1SubjectAccess, nbCoordinators)
+      // set up the coordinators
+      val (system, coordinatorLocater) = setupCoordinators(max1SubjectAccess, nbCoordinators).get
+
+      // the implicits for later on
+      implicit val dispatcher = system.dispatcher
+      implicit val timeout = Timeout(5.second)
 
       val latch = new CountDownLatch(nbSubjects)
       val nbPermits = new AtomicInteger(0)
 
-      implicit val timeout = Timeout(2.second)
-      implicit val ec = system.dispatcher
-
       import ClientCoordinatorProtocol._
       for (i <- 1 to nbSubjects) {
         val request = AuthorizationRequest("subject1", "view", s"resource$i")
-        val result = coordinators.getCoordinatorFor(request) ? request
+        val result = coordinatorLocater.getCoordinatorFor(request) ? request
         println("sent request")
         result onComplete {
           case Success(AuthorizationDecision(decision)) =>
