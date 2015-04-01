@@ -158,6 +158,10 @@ class AttributeMapStore(host: String, port: Int, database: String, username: Str
  */
 class HazelcastAttributeDatabaseConnection(hazelcast: IMap[(String, AttributeContainerType, String), List[String]])
   extends AttributeDatabaseConnection with Logging {
+  
+  override def close() = {
+    // nothing to do (I think)
+  }
 
   /**
    * Opens a connection, drops the data, commits and closes the connection.

@@ -30,6 +30,7 @@ import stapl.distribution.util.StatisticsActor
 import stapl.distribution.components.InitialPeakClientForCoordinatorGroup
 import stapl.distribution.util.Ehealth29RequestsGenerator
 import stapl.distribution.util.EhealthRandomRequestGenerator
+import stapl.distribution.util.RandomArtificialRequestGenerator
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import akka.util.Timeout
@@ -37,6 +38,7 @@ import scala.concurrent.Await
 import stapl.core.Decision
 import stapl.distribution.components.ClientRegistrationProtocol
 import stapl.distribution.components.SimpleDistributedCoordinatorLocater
+import stapl.distribution.db.entities.ArtificialEntityManager
 
 case class MultipleLocalCoordinatorsPerformanceTestConfig(nbCoordinators: Int = -1, nbWorkersPerCoordinator: Int = -1,
   nbUpdateWorkers: Int = -1, nbRequestsPerCoordinator: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
@@ -121,8 +123,9 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
 
         // no stats actor, just print out statistics at the end
         val stats = system.actorOf(Props.empty)
-        //val requestGenerator = Ehealth29RequestsGenerator
-        val requestGenerator = EhealthRandomRequestGenerator
+        //val requestGenerator = new Ehealth29RequestsGenerator()
+        //val requestGenerator = new EhealthRandomRequestGenerator()
+        val requestGenerator = new RandomArtificialRequestGenerator(1000, 1000)
         val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinatorLocater, config.nbRequestsPerCoordinator * nb, requestGenerator, stats), "client")
         val f = client ? "go"
         // wait for the "done" back (there should only be one result sent back here)
@@ -191,16 +194,25 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
         // we will only receive this message when all coordinators have registered
         coordinatorLocater.setCoordinators(coordinators.map(_._2))
         if (coordinators.size == 0) {
-          println("Received the list of coordinators, but no coordinators found. Shutting down")
+          error("Received the list of coordinators, but no coordinators found. Shutting down")
           shutdownActorSystems
           return None
         }
-        println(s"Successfully received the list of coordinators: $coordinators")
+        info(s"Successfully received the list of coordinators: $coordinators")
       case x =>
-        println(s"Failed to get the list of coordinators, shutting down. Received result: $x")
+        error(s"Failed to get the list of coordinators, shutting down. Received result: $x")
         shutdownActorSystems
         return None
     }
+
+    // some logging
+    var mockString = "";
+    if (config.mockDecision) {
+      mockString = ", mocking decision"
+    } else if (config.mockEvaluation) {
+      mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}ms"
+    }
+    println(s"Set up ${config.nbCoordinators} local DistributedCoordinators with each ${config.nbWorkersPerCoordinator} workers and ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
 
     Some(clientSystem, coordinatorLocater)
   }

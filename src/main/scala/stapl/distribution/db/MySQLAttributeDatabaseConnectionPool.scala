@@ -18,8 +18,8 @@ class MySQLAttributeDatabaseConnectionPool(host: String, port: Int, database: St
   extends AttributeDatabaseConnectionPool with Logging {
 
   private val dataSource = new ComboPooledDataSource
-  dataSource.setMaxPoolSize(100); // no maximum
-  dataSource.setMinPoolSize(1); // no maximum
+  dataSource.setMaxPoolSize(100); 
+  dataSource.setMinPoolSize(1); 
   dataSource.setDriverClass("com.mysql.jdbc.Driver");
   dataSource.setUser(username);
   dataSource.setPassword(password);

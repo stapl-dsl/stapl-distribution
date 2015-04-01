@@ -17,6 +17,7 @@ import com.hazelcast.core.Hazelcast
 import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
 import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
+import stapl.distribution.db.MockAttributeDatabaseConnectionPool
 import stapl.distribution.components.DistributedCoordinator
 import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
 import stapl.examples.policies.EhealthPolicy
@@ -27,7 +28,7 @@ import scala.concurrent.duration._
 
 case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1,
   nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
-  coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1, databaseType: String = "not-provided", 
+  coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1, databaseType: String = "not-provided",
   policy: String = "not-provided",
   logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
   statsOutInterval: Int = 2000, enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
@@ -155,20 +156,27 @@ object DistributedCoordinatorApp {
       val system = ActorSystem("STAPL-coordinator", customConf)
 
       // set up the database
-      val pool: AttributeDatabaseConnectionPool = config.databaseType match {
-        case "hazelcast" =>
-          val cfg = new Config()
-          cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
-          val mapCfg = new MapConfig("stapl-attributes")
-          mapCfg.setMapStoreConfig(new MapStoreConfig()
-            .setEnabled(true)
-            .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-          cfg.addMapConfig(mapCfg)
-          val hazelcast = Hazelcast.newHazelcastInstance(cfg)
-          new HazelcastAttributeDatabaseConnectionPool(hazelcast)
-        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
+      // Use mock databases in case we are mocking the evaluation or the decision,
+      // this allows us to test larger numbers of workers since the database does
+      // not limit the number of connections any more
+      val pool: AttributeDatabaseConnectionPool = (config.mockDecision | config.mockEvaluation) match {
+        case true => new MockAttributeDatabaseConnectionPool
+        case false => config.databaseType match {
+          case "hazelcast" =>
+            val cfg = new Config()
+            cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
+            cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.ip)
+            val mapCfg = new MapConfig("stapl-attributes")
+            mapCfg.setMapStoreConfig(new MapStoreConfig()
+              .setEnabled(true)
+              .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
+            cfg.addMapConfig(mapCfg)
+            val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+            new HazelcastAttributeDatabaseConnectionPool(hazelcast)
+          case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
+        }
       }
+
       // set up the coordinator manager
       //      val coordinatorManager = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
       // get the id of our coordinator

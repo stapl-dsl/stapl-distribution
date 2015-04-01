@@ -27,6 +27,8 @@ import scala.concurrent.blocking
 
 /**
  * The Scala actor that wraps a PDP and is able to evaluate policies on request of a Foreman.
+ * 
+ * TODO: remove the cache
  */
 class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttributeCache, db: AttributeDatabaseConnection,
   enableStatsDb: Boolean = false, mockEvaluation: Boolean = false,
@@ -37,6 +39,14 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
   finder += new DatabaseAttributeFinderModule(db, enableStatsDb)
   finder += new HardcodedEnvironmentAttributeFinderModule
   val pdp = new PDP(policy, finder)
+  
+  /**
+   * Close the connection when we are destroyed.
+   */
+  override def postStop() = {
+    db.close
+    log.debug("Closed the AttributeDatabaseConnection")
+  }
 
   import ForemanWorkerProtocol._
 

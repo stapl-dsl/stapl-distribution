@@ -37,7 +37,7 @@ class SimpleAttributeDatabaseConnection(initialConnection: Connection, readonly:
   /**
    * Closes the connection to the database.
    */
-  def close(): Unit = {
+  override def close(): Unit = {
     try {
       getStringAttributeStmt.close()
       storeAttributeStmt.close()

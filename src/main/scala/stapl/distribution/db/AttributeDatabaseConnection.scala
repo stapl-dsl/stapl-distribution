@@ -23,9 +23,14 @@ trait AttributeDatabaseConnectionPool {
 
 /**
  *
- * Constructor: sets up an open AttributeDatabaseConnection.
+ * Constructor: sets up an *open* AttributeDatabaseConnection.
  */
 abstract class AttributeDatabaseConnection extends Logging {
+  
+  /**
+   * Closes this attribute database connection.
+   */
+  def close()
 
   /**
    * Fetches a string attribute from the database using the connection of this database.
