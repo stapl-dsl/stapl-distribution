@@ -39,6 +39,7 @@ import stapl.core.Decision
 import stapl.distribution.components.ClientRegistrationProtocol
 import stapl.distribution.components.SimpleDistributedCoordinatorLocater
 import stapl.distribution.db.entities.ArtificialEntityManager
+import stapl.distribution.db.MockAttributeDatabaseConnectionPool
 
 case class MultipleLocalCoordinatorsPerformanceTestConfig(nbCoordinators: Int = -1, nbWorkersPerCoordinator: Int = -1,
   nbUpdateWorkers: Int = -1, nbRequestsPerCoordinator: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
@@ -155,7 +156,13 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
 
   def setupCoordinators(config: MultipleLocalCoordinatorsPerformanceTestConfig): Option[(ActorSystem, CoordinatorLocater)] = {
     // set up the database
-    val pool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
+    // Use mock databases in case we are mocking the evaluation or the decision,
+    // this allows us to test larger numbers of workers since the database does
+    // not limit the number of connections any more
+    val pool: AttributeDatabaseConnectionPool = (config.mockDecision | config.mockEvaluation) match {
+      case true => new MockAttributeDatabaseConnectionPool
+      case false => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
+    }
 
     val clientSystem = startLocalActorSystem("STAPL-coordinator", 2552, config.logLevel)
     actorSystems += clientSystem
@@ -181,12 +188,12 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
         config.nbWorkersPerCoordinator, config.nbUpdateWorkers, pool, coordinatorManager,
         false, false, -1, config.enableStatsWorkers,
         config.enableStatsDb, config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
-    }    
-    
+    }
+
     // the implicits for later on
     implicit val dispatcher = clientSystem.dispatcher
     implicit val timeout = Timeout(5.second)
-    
+
     // set up the coordinator locator
     val coordinatorLocater = new SimpleDistributedCoordinatorLocater
     Await.result(coordinatorManager ? ClientRegistrationProtocol.GetListOfCoordinators, 5.seconds) match {

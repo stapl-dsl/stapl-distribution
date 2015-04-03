@@ -25,7 +25,7 @@ class MockAttributeDatabaseConnection extends AttributeDatabaseConnection {
 
   def storeAttribute(entityId: String, cType: stapl.core.AttributeContainerType, name: String, value: String): Unit = ???
 
-  def close() = ???
+  def close() = {} // don't throw an error here, this method is called when a Worker is destroyed
 
   val receivedAttributeUpdates = ListBuffer[(String, Attribute, Any)]()
 
