@@ -16,6 +16,7 @@ dnetcloud:
 clean:
 	cd ../stapl-core; mvn clean install
 	cd ../stapl-templates; mvn clean install
+	cd ../stapl-java-api; mvn clean install
 	cd ../stapl-examples; mvn clean install
 	# back in the original folder
 	mvn clean package
