@@ -10,7 +10,6 @@ import com.typesafe.config.ConfigFactory
 import scala.util.{ Success, Failure }
 import scala.concurrent.Future
 import scala.concurrent.blocking
-import scala.concurrent.ExecutionContext.Implicits.global
 import akka.util.Timeout
 import scala.concurrent.Await
 import stapl.core.Decision
@@ -27,10 +26,14 @@ import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.db.entities.ArtificialEntityManager
+import org.slf4j.LoggerFactory
+import grizzled.slf4j.Logging
+import stapl.distribution.components.SimpleDistributedCoordinatorLocater
+import stapl.distribution.components.ClientRegistrationProtocol
 
 case class ContinuousOverloadClientForDistributedCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
-  coordinatorIP: String = "not-provided",
+  coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1,
   nbRequests: Int = -1, nbPeaks: Int = -1,
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
   statsInterval: Int = 2000, logLevel: String = "INFO", waitForGo: Boolean = false)
@@ -56,10 +59,14 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       opt[Int]("port") required () action { (x, c) =>
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
-      
-      opt[String]("coordinator-ip") required () action { (x, c) =>
-        c.copy(coordinatorIP = x)
-      } text ("The ip address of the machine on which one of the distributed coordinators is running.")
+
+      opt[String]("coordinator-manager-ip") action { (x, c) =>
+        c.copy(coordinatorManagerIP = x)
+      } text ("The IP address of the coordinator manager in the cluster.")
+
+      opt[Int]("coordinator-manager-port") action { (x, c) =>
+        c.copy(coordinatorManagerPort = x)
+      } text ("The port of the coordinator manager in the cluster.")
       
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
@@ -110,32 +117,42 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
 
-      // set up hazelcast
-      val cfg = new Config()
-      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
-      val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+      // set log level
+      LoggerFactory.getLogger("stapl.distribution").asInstanceOf[ch.qos.logback.classic.Logger]
+        .setLevel(ch.qos.logback.classic.Level.valueOf(config.logLevel))
 
-      val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
+      val coordinatorLocater = new SimpleDistributedCoordinatorLocater
+      val selection = system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorManagerIP}:${config.coordinatorManagerPort}/user/distributed-coordinator-manager")
+      implicit val dispatcher = system.dispatcher
+      implicit val timeout = Timeout(5.second)
+      val coordinatorManager = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+      Await.result(coordinatorManager ? ClientRegistrationProtocol.GetListOfCoordinators, 5.seconds) match {
+        case ClientRegistrationProtocol.ListOfCoordinators(coordinators) =>
+          coordinatorLocater.setCoordinators(coordinators.map(_._2))
+          if (coordinators.size == 0) {
+            println("Received the list of coordinators, but no coordinators found. Shutting down")
+            system.shutdown
+            return
+          }
+          println(s"Successfully received the list of coordinators: $coordinators")
+        case x =>
+          println(s"Failed to get the list of coordinators, shutting down. Received result: $x")
+          system.shutdown
+          return
+      }
+      
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",config.statsInterval,10))
+      val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",config.statsInterval,10,true))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
-      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, em, config.nbRequests, config.nbPeaks / 2, stats), "client1")
-      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinators, em, config.nbRequests, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
-      
-      if(coordinators.coordinators.size == 0) {
-        println("No coordinators found, shutting down")
-        hazelcast.shutdown()
-        system.shutdown
-        return
-      }
-      
-      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbPeaks / 2, stats), "client1")
+      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
+            
+      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")
       if(config.waitForGo) {
         println("Press any key to start generating load")
         Console.readLine()

@@ -28,11 +28,15 @@ import com.hazelcast.core.Hazelcast
 import stapl.distribution.components.SequentialClientForCoordinatorGroup
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.db.entities.ArtificialEntityManager
+import org.slf4j.LoggerFactory
+import grizzled.slf4j.Logging
+import stapl.distribution.components.SimpleDistributedCoordinatorLocater
+import stapl.distribution.components.ClientRegistrationProtocol
 
 case class SequentialClientForDistributedCoordinatorsConfig(name: String = "not-provided",
   ip: String = "not-provided", port: Int = -1,
   nbThreads: Int = -1, nbRequests: Int = -1, policy: String = "not-provided",
-  coordinatorIP: String = "not-provided",
+  coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1,
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
   statsInterval: Int = 2000,
   logLevel: String = "INFO", waitForGo: Boolean = false)
@@ -62,9 +66,13 @@ object SequentialClientForDistributedCoordinatorsApp {
         c.copy(port = x)
       } text ("The port on which this client will be listening. 0 for a random port")
 
-      opt[String]("coordinator-ip") required () action { (x, c) =>
-        c.copy(coordinatorIP = x)
-      } text ("The IP address of the machine on which one of the coordinators in the group is running.")
+      opt[String]("coordinator-manager-ip") action { (x, c) =>
+        c.copy(coordinatorManagerIP = x)
+      } text ("The IP address of the coordinator manager in the cluster.")
+
+      opt[Int]("coordinator-manager-port") action { (x, c) =>
+        c.copy(coordinatorManagerPort = x)
+      } text ("The port of the coordinator manager in the cluster.")
 
       opt[Int]("nb-threads") required () action { (x, c) =>
         c.copy(nbThreads = x)
@@ -115,28 +123,38 @@ object SequentialClientForDistributedCoordinatorsApp {
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
 
-      // set up hazelcast
-      val cfg = new Config()
-      cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-      cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
-      val hazelcast = Hazelcast.newHazelcastInstance(cfg)
+      // set log level
+      LoggerFactory.getLogger("stapl.distribution").asInstanceOf[ch.qos.logback.classic.Logger]
+        .setLevel(ch.qos.logback.classic.Level.valueOf(config.logLevel))
 
-      val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
+      val coordinatorLocater = new SimpleDistributedCoordinatorLocater
+      val selection = system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorManagerIP}:${config.coordinatorManagerPort}/user/distributed-coordinator-manager")
+      implicit val dispatcher = system.dispatcher
+      implicit val timeout = Timeout(5.second)
+      val coordinatorManager = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+      Await.result(coordinatorManager ? ClientRegistrationProtocol.GetListOfCoordinators, 5.seconds) match {
+        case ClientRegistrationProtocol.ListOfCoordinators(coordinators) =>
+          coordinatorLocater.setCoordinators(coordinators.map(_._2))
+          if (coordinators.size == 0) {
+            println("Received the list of coordinators, but no coordinators found. Shutting down")
+            system.shutdown
+            return
+          }
+          println(s"Successfully received the list of coordinators: $coordinators")
+        case x =>
+          println(s"Failed to get the list of coordinators, shutting down. Received result: $x")
+          system.shutdown
+          return
+      }
+      
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
       val stats = system.actorOf(Props(classOf[StatisticsActor], "Continuous overload clients", config.statsInterval, 10, true))
-      val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForCoordinatorGroup], coordinators, em, stats)), "clients")
+      val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForCoordinatorGroup], coordinatorLocater, em, stats)), "clients")
 
-      if (coordinators.coordinators.size == 0) {
-        println("No coordinators found, shutting down")
-        hazelcast.shutdown()
-        system.shutdown
-        return
-      }
-
-      println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")
 
       if (config.waitForGo) {
         println("Press any key to start generating load")

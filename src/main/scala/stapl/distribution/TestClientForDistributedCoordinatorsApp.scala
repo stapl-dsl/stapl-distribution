@@ -59,11 +59,11 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
 
       opt[String]("coordinator-manager-ip") action { (x, c) =>
         c.copy(coordinatorManagerIP = x)
-      } text ("The IP address of the coordinator manager in the cluster. If none given, this means that this coordinator is the first one and will not attempt to join an existing cluster.")
+      } text ("The IP address of the coordinator manager in the cluster.")
 
       opt[Int]("coordinator-manager-port") action { (x, c) =>
         c.copy(coordinatorManagerPort = x)
-      } text ("The port of the coordinator manager in the cluster. Only needed if coordinator-manager-port is given.")
+      } text ("The port of the coordinator manager in the cluster.")
 
       opt[String]("request-pool") action { (x, c) =>
         c.copy(requestPool = x)

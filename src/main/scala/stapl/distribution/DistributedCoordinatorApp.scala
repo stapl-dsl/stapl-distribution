@@ -210,7 +210,7 @@ object DistributedCoordinatorApp {
       } else if (config.mockEvaluation) {
         mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}ms"
       }
-      println(s"DistributedCoordinator up and running at ${config.hostname}:${config.port} with ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
+      println(s"DistributedCoordinator up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers and ${config.nbUpdateWorkers} update workers (log-level: ${config.logLevel}$mockString)")
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }
