@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.ByteOrder;
 
 import com.hazelcast.nio.ObjectDataOutput;
+import com.hazelcast.nio.serialization.Data;
 
 public class MockObjectDataOutput implements ObjectDataOutput {
 	
@@ -135,6 +136,16 @@ public class MockObjectDataOutput implements ObjectDataOutput {
 
 	@Override
 	public ByteOrder getByteOrder() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void writeByteArray(byte[] bytes) throws IOException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void writeData(Data data) throws IOException {
 		throw new UnsupportedOperationException();
 	}
 
