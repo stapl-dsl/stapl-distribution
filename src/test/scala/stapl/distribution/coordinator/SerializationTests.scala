@@ -17,7 +17,7 @@ import org.joda.time.LocalDateTime
 import stapl.core._
 import stapl.core.Attribute
 import com.hazelcast.instance.GroupProperties
-import com.hazelcast.nio.serialization.SerializationServiceBuilder
+import com.hazelcast.nio.serialization.DefaultSerializationServiceBuilder
 import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
 
@@ -38,7 +38,7 @@ class SerializationTests extends AssertionsForJUnit {
     config.setProperty(GroupProperties.PROP_WAIT_SECONDS_BEFORE_JOIN, "1")
     val h = Hazelcast.newHazelcastInstance(config)
     val customerMap = h.getMap("customers")
-    val ss = new SerializationServiceBuilder().setConfig(config.getSerializationConfig()).build()
+    val ss = new DefaultSerializationServiceBuilder().setConfig(config.getSerializationConfig()).build()
     val out = new ByteArrayOutputStream
     val objectOut = ss.createObjectDataOutputStream(out)
 
