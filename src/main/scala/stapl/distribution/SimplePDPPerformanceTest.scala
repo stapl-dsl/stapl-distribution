@@ -62,21 +62,23 @@ object SimplePDPPerformanceTest extends App with Logging {
     attributeFinder += new HardcodedEnvironmentAttributeFinderModule
     val pdp = new PDP(naturalPolicy, attributeFinder)
 
-    // do the tests
-    val timer = new Timer()
-    for ((request, shouldBe) <- em.requests) {
-      info(s"Starting request ${request}")
-      implicit val (subject, action, resource, extraAttributes) = request
-      for (i <- 0 to config.nbRuns) {
+    // do the tests: iterate over the different requests in order to avoid JVM optimizations
+    val timers = em.requests.map(x => {
+      val (subject, action, resource, extraAttributes) = x._1
+      (x._1, new Timer(s"Request (${subject.id},$action,${resource.id},$extraAttributes)"))
+    }).toMap
+    for (i <- 0 to config.nbRuns) {
+      for ((request, shouldBe) <- em.requests) {
+        implicit val (subject, action, resource, extraAttributes) = request
+        val timer = timers(request)
         val r = timer time {
           pdp.evaluate(subject.id, action, resource.id, extraAttributes: _*)
         }
         assert(shouldBe, r)
-        debug("===================================================")
       }
-      info(s"Request (${subject.id},$action,${resource.id},$extraAttributes): mean after ${config.nbRuns} runs = ${timer.mean} ms")
-      timer.reset
     }
+    println("#! Results")
+    timers.values.foreach(x => println(x.toJSON()))
   } getOrElse {
     // arguments are bad, error message will have been displayed
   }

@@ -85,7 +85,7 @@ object ContinuousOverloadClientForConcurrentCoordinatorsApp {
       val system = ActorSystem("STAPL-client", customConf)
 
       val coordinators = new RemoteConcurrentCoordinatorGroup(system, config.coordinatorManagerHostname, config.coordinatorManagerPort)
-      val stats = system.actorOf(Props(classOf[StatisticsActor],"Initial peak clients",1000,10))
+      val stats = system.actorOf(Props(classOf[StatisticsActor],"Initial peak clients",1000,10,true))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded

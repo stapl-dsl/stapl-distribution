@@ -102,9 +102,9 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   val timer = new Timer
 
   def sendRequest = {
+    val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+    val coordinator = coordinators.getCoordinatorFor(request)
     timer.time {
-      val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
-      val coordinator = coordinators.getCoordinatorFor(request)
       val f = coordinator ? request
       val decision: Decision = Await.ready(f, 180 seconds).value match {
         case None =>
@@ -168,9 +168,9 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
   val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
   def sendRequest = {
+    val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+    val coordinator = coordinators.getCoordinatorFor(request)
     timer.time {
-      val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
-      val coordinator = coordinators.getCoordinatorFor(request)
       val f = coordinator ? request
       val decision: Decision = Await.ready(f, 180 seconds).value match {
         case None =>
