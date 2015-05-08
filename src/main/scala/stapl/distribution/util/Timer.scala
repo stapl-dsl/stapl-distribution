@@ -1,6 +1,8 @@
 package stapl.distribution.util
 
 import Numeric._
+import spray.json._
+import scala.collection.mutable.ListBuffer
 
 /**
  * Class used for representing a timer that times code evaluation,
@@ -17,19 +19,23 @@ class Timer(label: String = "unnamed-timer") {
 
   // timings in milliseconds
   var timings = List[Double]()
+  var last = -1.0
 
   var t0 = 0L
   var t1 = 0L
 
   def start() = t0 = System.nanoTime()
-  def stop() = t1 = System.nanoTime()
+  def stop() = {
+    t1 = System.nanoTime()
+    last = duration
+    timings ::= last
+  }
   def duration() = (t1.toDouble - t0.toDouble) / 1000000.0
 
   def time[R](block: => R): R = {
     start
     val result = block // call-by-name
     stop
-    timings ::= duration
     result
   }
 
@@ -81,6 +87,46 @@ class Timer(label: String = "unnamed-timer") {
     return f"$label: nbruns = $count, mean = $mean%2.2f ms, confInt = ${confInt() * 100}%2.2f%%"
   }
 
-  def toJSON(): String = f"""{ "label": "$label", "nbruns": $count, "mean": $mean%2.2f, "confInt": ${confInt()} }"""
+  def toJSON(): String = JsObject(
+    "label" -> JsString(label),
+    "nbruns" -> JsNumber(count),
+    "mean" -> JsNumber(mean),
+    "confInt" -> JsNumber(confInt()),
+    "values" -> JsArray(timings.map(JsNumber(_)).toVector)).compactPrint
+
+  def printAllMeasurements() = {
+    timings.foreach(println(_))
+  }
+
+  def printHistogram(binSize: Double) = {
+    val max = timings.foldLeft(0.0)((a, b) => math.max(a, b))
+    //val min = timings.foldLeft(Double.MaxValue)((a,b) => math.min(a,b))
+    val min = 0
+    val nbBins = math.ceil(max / binSize).toInt
+
+    // put the values in bins
+    val bins = ListBuffer[Int]()
+    (1 to nbBins).foreach(x => bins.append(0))
+    timings.foreach(x => {
+      val index = math.floor((x - min) / binSize).toInt
+      bins(index) = bins(index) + 1
+    })
+
+    // print the values
+    val nbCharacters = 50
+    val maxBin = bins.foldLeft(0)((a, b) => math.max(a, b))
+    val characterSize = (maxBin / nbCharacters).ceil
+    val intervalSize = f"[${(nbBins - 1) * binSize + min},${nbBins * binSize + min})".size
+    val labelSize = s"${maxBin}".size
+    for (i <- 0 until nbBins) {
+      val value = bins(i)
+      val lowerBound = i * binSize + min
+      val upperBound = (i + 1) * binSize + min
+      val interval = f"[$lowerBound,$upperBound)".padTo(intervalSize, ' ')
+      val label = s"$value".padTo(labelSize, ' ')
+      val bar = "".padTo(math.round((value - min) / characterSize).toInt, '=')
+      println(s"$interval | $label | $bar")
+    }
+  }
 
 }

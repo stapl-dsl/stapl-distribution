@@ -25,6 +25,9 @@ import stapl.distribution.policies.ConcurrencyPolicies
 import stapl.distribution.components.DistributedCoordinatorManager
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import java.lang.management.ManagementFactory
+import java.lang.management.GarbageCollectorMXBean
+import javax.management.ObjectName
 
 case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1,
   nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
@@ -202,7 +205,25 @@ object DistributedCoordinatorApp {
       val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], policies(config.policy),
         config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager,
         config.enableStatsIn, config.enableStatsOut, config.statsOutInterval, config.enableStatsWorkers, config.enableStatsDb,
-        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
+        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration).withDispatcher("coordinator-pinned-dispatcher"), "coordinator")
+
+//      // listen for garbage collection
+//      new Thread(new Runnable {
+//        var nbCollections = 0
+//        
+//        def run() {
+//          import collection.JavaConversions._
+//          while (true) {
+//            val server = ManagementFactory.getPlatformMBeanServer()
+//            val gcName = new ObjectName(ManagementFactory.GARBAGE_COLLECTOR_MXBEAN_DOMAIN_TYPE + ",*")
+//            for (name <- server.queryNames(gcName, null)) {
+//              val gc = ManagementFactory.newPlatformMXBeanProxy(server, name.getCanonicalName(), classOf[GarbageCollectorMXBean])
+//              println(s"$name -> ${gc.getCollectionCount()}")
+//            }
+//            Thread.sleep(1000)
+//          }
+//        }
+//      }).start()
 
       var mockString = "";
       if (config.mockDecision) {

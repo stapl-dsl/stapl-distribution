@@ -171,7 +171,17 @@ class DistributedCoordinatorManager extends Actor with ActorLogging {
 
   private var idCounter = 0
 
+  /**
+   * The list of all coordinators
+   */ 
   private val coordinators = ListBuffer[(Int, ActorRef)]()
+  
+  /**
+   * The list of active coordinators (which can differ from the list
+   * of all coordinators after a DistributedCoordinatorConfigurationProtocol.SetNumberCoordinators
+   * message.
+   */
+  private var activeCoordinators = List[(Int, ActorRef)]()
 
   /**
    * *********************************
@@ -188,6 +198,11 @@ class DistributedCoordinatorManager extends Actor with ActorLogging {
     case DistributedCoordinatorRegistrationProtocol.Register(coordinator) =>
       // add the coordinator to the administration
       coordinators += ((idCounter, coordinator))
+      // NOTICE that this allows the list of coordinators to change after an
+      // DistributedCoordinatorConfigurationProtocol.SetNumberCoordinators message
+      // If this is not wanted, add messages to manage the state: fixed nb vs floating nb 
+      // or something like that
+      activeCoordinators = coordinators.toList
       // ack to the manager of the new coordinator (*including* the new coordinator itself)
       sender ! DistributedCoordinatorRegistrationProtocol.AckOfRegister(idCounter, coordinators.toList)
       // notify all but the new coordinator of the update 
@@ -202,7 +217,23 @@ class DistributedCoordinatorManager extends Actor with ActorLogging {
      * From a new client.
      */
     case ClientRegistrationProtocol.GetListOfCoordinators =>
-      sender ! ClientRegistrationProtocol.ListOfCoordinators(coordinators.toList)
+      sender ! ClientRegistrationProtocol.ListOfCoordinators(activeCoordinators.toList)
+
+    /**
+     * Reconfiguration
+     */
+    case DistributedCoordinatorConfigurationProtocol.SetNumberCoordinators(nb) =>
+      if (nb <= coordinators.size) {
+        activeCoordinators = coordinators.toList.slice(0, nb)
+        coordinators.foreach {
+          case (id, coordinator) => coordinator ! DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(activeCoordinators)
+        }
+        // FIXME race conditions here, we should probably wait for an ack by the coordinators?
+        sender ! DistributedCoordinatorConfigurationProtocol.SetNumberCoordinatorsSuccess
+      } else {
+        sender ! DistributedCoordinatorConfigurationProtocol.SetNumberCoordinatorsFailed(
+          s"You requested $nb coordinators, but I only have ${coordinators.size}")
+      }
 
     /**
      *
@@ -252,8 +283,8 @@ class FixedNumberCoordinatorsDistributedCoordinatorManager(nbCoordinators: Int) 
       // increment the id counter
       idCounter += 1
       // notify waiting clients if this was the last coordinator
-      if(coordinators.size == nbCoordinators) {
-        for(client <- waitingClients) {
+      if (coordinators.size == nbCoordinators) {
+        for (client <- waitingClients) {
           client ! ClientRegistrationProtocol.ListOfCoordinators(coordinators.toList)
         }
         waitingClients.clear

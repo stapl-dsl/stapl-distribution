@@ -115,6 +115,9 @@ object DistributedCoordinatorRegistrationProtocol {
 }
 object ClientRegistrationProtocol {
   
+  /**
+   * 
+   */
   case class GetListOfCoordinators(client: ActorRef)
   
   /**
@@ -127,4 +130,30 @@ object ClientRegistrationProtocol {
    * should be the same on every node.
    */  
   case class ListOfCoordinators(coordinators: List[(Int,ActorRef)])
+}
+
+/**
+ * For configuring a DistributedCoordinatorManager
+ */
+object DistributedCoordinatorConfigurationProtocol {  
+  
+  /**
+   * Sets the number of coordinators to be used. Will result in  
+   * a SetNumberCoordinatorsSuccess or SetNumberCoordinatorsFailed back.
+   * The update will fail if there are not enough coordinators present.
+   */
+  case class SetNumberCoordinators(nb: Int)
+  
+  /**
+   * The number of coordinators to be used was successfully updated.
+   */
+  case class SetNumberCoordinatorsSuccess
+  
+  /**
+   * The number of coordinators to be used could not be updated.
+   * 
+   * @param msg	
+   * 		An error message.
+   */
+  case class SetNumberCoordinatorsFailed(msg: String)
 }

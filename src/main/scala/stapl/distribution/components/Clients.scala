@@ -345,31 +345,65 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
   import ClientProtocol._
   import ClientCoordinatorProtocol._
 
+  implicit val timeout = Timeout(2.second)
   implicit val ec = context.dispatcher
 
   val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
-  def sendRequest() = {
-    println("Provide the number of requests to send (default: 1)")
-    var nb = 1
-    try {
-      nb = Console.readInt()
-    } catch {
-      case e: NumberFormatException =>
+  val timer = new Timer()
+
+  val durationRegex = "^([0-9]+)ms$".r
+  val numberRegex = "^([0-9]+)$".r
+
+  def sendRequest(): Unit = {
+    println("Provide the number of requests to send as a number (default: 1) or provide a duration to aim for in the form of \"<x>ms\"")
+
+    Console.readLine match {
+      case durationRegex(duration) =>
+        val dur = duration.toInt
+        var continue = true
+        var nbTries = 0
+        while(continue) {
+          val request = em.randomRequest
+          val coordinator = coordinators.getCoordinatorFor(request)
+          coordinatorCounter.count(coordinator)
+          timer.time {
+            Await.result(coordinator ? request, 180 seconds) match {
+              case AuthorizationDecision(decision) =>
+              case x =>
+                throw new RuntimeException(s"Something went wrong: $x")
+            }
+          }
+          nbTries += 1
+          if(timer.last > dur) {
+        	  log.info(s"Received reply with duration of ${timer.last} ms after $nbTries tries")
+        	  continue = false
+          }
+        }
+        
+      case numberRegex(number) =>
+        val nb = number.toInt
+        for (i <- 1 to nb) {
+          val request = em.randomRequest
+          val coordinator = coordinators.getCoordinatorFor(request)
+          coordinatorCounter.count(coordinator)
+          timer.time {
+            Await.result(coordinator ? request, 180 seconds) match {
+              case AuthorizationDecision(decision) =>
+              case x =>
+                throw new RuntimeException(s"Something went wrong: $x")
+            }
+          }
+          log.info(s"Received reply, duration = ${timer.last} ms")
+        }
+      case _ =>
+        println("I have no idea what you typed")
     }
-    for (i <- 1 to nb) {
-      val request = em.randomRequest
-      val coordinator = coordinators.getCoordinatorFor(request)
-      coordinatorCounter.count(coordinator)
-      coordinator ! request
-    }
+    sendRequest
   }
 
   def receive = {
     case "go" =>
-      sendRequest()
-    case AuthorizationDecision(decision) =>
-      log.debug(s"Received decision: $decision")
       sendRequest()
     case x => log.error(s"Received unknown message: $x")
   }

@@ -150,7 +150,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      */
     case DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(coordinators) =>      
       coordinatorLocater.setCoordinators(coordinators.map(_._2))
-      log.debug(s"Received updated list of coordinators: $coordinators")
+      log.info(s"Received updated list of coordinators: $coordinators")
 
     /**
      * From a Worker.
