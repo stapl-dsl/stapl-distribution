@@ -33,7 +33,7 @@ import grizzled.slf4j.Logging
 import stapl.distribution.components.SimpleDistributedCoordinatorLocater
 import stapl.distribution.components.ClientRegistrationProtocol
 
-case class SequentialClientForDistributedCoordinatorsConfig(name: String = "not-provided",
+case class SequentialClientForDistributedCoordinatorsConfig(
   ip: String = "not-provided", port: Int = -1,
   nbThreads: Int = -1, nbRequests: Int = -1, policy: String = "not-provided",
   coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1,
@@ -53,10 +53,6 @@ object SequentialClientForDistributedCoordinatorsApp {
 
     val parser = new scopt.OptionParser[SequentialClientForDistributedCoordinatorsConfig]("scopt") {
       head("STAPL - coordinator")
-
-      opt[String]("name") required () action { (x, c) =>
-        c.copy(name = x)
-      } text ("The name of this foreman. This is used for debugging.")
 
       opt[String]("ip") required () action { (x, c) =>
         c.copy(ip = x)
@@ -151,7 +147,7 @@ object SequentialClientForDistributedCoordinatorsApp {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor], "Continuous overload clients", config.statsInterval, 10, true))
+      val stats = system.actorOf(Props(classOf[StatisticsActor], "Sequential clients", 0 /* no periodical output */, 10, false))
       val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForCoordinatorGroup], coordinatorLocater, em, stats)), "clients")
 
       println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")

@@ -33,6 +33,9 @@ class Intervals(val maxSize: Int = 0) {
 
 /**
  * Class used for keeping and printing throughput statistics.
+ *
+ * @param intervalSize
+ * 			Set to 0 for not printing periodically.
  */
 class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int = 1000, nbIntervals: Int = 10, enabled: Boolean = true) {
   var totalStart = 0L
@@ -52,7 +55,13 @@ class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int =
       }
       totalCounter += 1L
       intervalCounter += 1L
-      printThroughput
+
+      if (intervalSize > 0 && intervalCount % intervalSize == 0) {
+        val i = intervalThroughput
+        lastIntervals += i
+        printThroughput
+        resetInterval
+      }
     }
   }
 
@@ -83,22 +92,16 @@ class ThroughputStatistics(name: String = "Anonymous timer", intervalSize: Int =
   }
 
   def printThroughput {
-    if (intervalCount % intervalSize == 0) {
-      val i = intervalThroughput
-      lastIntervals += i
-      // print
-      val intervalsLabel = f"Mean throughput over last ${lastIntervals.count} intervals = "
-      val total = "Total throughput = ".padTo(intervalsLabel.size, ' ') + f"$totalThroughput%2.2f requests/sec"
-      val intervals = intervalsLabel + f"${lastIntervals.mean}%2.2f requests/sec"
-      val last = "Last interval throughput = ".padTo(intervalsLabel.size, ' ') + f"$i%2.2f requests/sec"
-      println(s"=== $name ".padTo(50, '='))
-      println("Total count = ".padTo(intervalsLabel.size, ' ') + f"$totalCounter requests")
-      println(total)
-      println(intervals)
-      println(last)
-      println("=========".padTo(50, '='))
-      resetInterval
-    }
+    val intervalsLabel = f"Mean throughput over last ${lastIntervals.count} intervals = "
+    val total = "Total throughput = ".padTo(intervalsLabel.size, ' ') + f"$totalThroughput%2.2f requests/sec"
+    val intervals = intervalsLabel + f"${lastIntervals.mean}%2.2f requests/sec"
+    val last = "Last interval throughput = ".padTo(intervalsLabel.size, ' ') + f"$intervalThroughput%2.2f requests/sec"
+    println(s"=== $name ".padTo(50, '='))
+    println("Total count = ".padTo(intervalsLabel.size, ' ') + f"$totalCounter requests")
+    println(total)
+    println(intervals)
+    println(last)
+    println("=========".padTo(50, '='))
   }
 }
 
@@ -114,7 +117,7 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
    * measurementsLastInterval: tuples containing the time since the start at which
    * 	the measurement was taken (in ms) and the duration of that measurement
    */
-  val measurementsLastInterval = ListBuffer[(Double,Double)]()
+  val measurementsLastInterval = ListBuffer[(Double, Double)]()
   val durationsLastIntervals = new Intervals(nbIntervals)
   val throughputLastIntervals = new Intervals(nbIntervals)
   val durationAllIntervals = new Intervals()
@@ -127,7 +130,7 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
    * Helper function to get the current timestamp.
    */
   private def now() = System.nanoTime()
-  
+
   /**
    * Helper function to get the time since the first measurement in ms.
    */
@@ -205,44 +208,46 @@ class ThroughputAndLatencyStatistics(name: String = "Anonymous timer", intervalS
         intervalStart = now
         started = true
       }
-      measurementsLastInterval += ((msSinceStart,duration))
-      if (intervalCount % intervalSize == 0) {
-        // print
-        val meanDurationLastInterval = mean(measurementsLastInterval.map(_._2))
-        durationsLastIntervals += meanDurationLastInterval
-        durationAllIntervals += meanDurationLastInterval
-        val throughputLastInterval = intervalThroughput
-        throughputLastIntervals += throughputLastInterval
-        throughputAllIntervals += throughputLastInterval
-
-        val intervalsLabel = f"# Mean throughput over last $nbIntervals intervals = " // this is the longest label
-        println(s"### $name (intervals of $intervalSize requests)".padTo(70, '#'))
-        println(s"# Total count = ".padTo(intervalsLabel.size, ' ') + f"$totalCount requests")
-        // duration: overall
-        println(s"# Mean duration over ${durationAllIntervals.count} intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
-        // duration: last X intervals
-        println(f"# Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
-        // duration: last interval
-        println("# Mean duration over last interval = ".padTo(intervalsLabel.size, ' ') + f"$meanDurationLastInterval%2.2f ms")
-        // throughput: overall
-        println("# Mean throughput over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${throughputAllIntervals.mean}%2.2f requests/sec")
-        // throughput: last X intervals
-        println(intervalsLabel + f"${throughputLastIntervals.mean}%2.2f requests/sec")
-        // throughput: last interval
-        println("# Throughput of last interval = ".padTo(intervalsLabel.size, ' ') + f"$throughputLastInterval%2.2f requests/sec")
-        println("".padTo(70, '#'))
-        
-        if(printIndividualMeasurements) {
-          for((time,duration) <- measurementsLastInterval) {
-            println(f"Measurement: $time%.3f $duration%.3f")
-          }
-        }
-
+      measurementsLastInterval += ((msSinceStart, duration))
+      if (intervalSize > 0 && intervalCount % intervalSize == 0) {
+        printMeasurements
         // flush    
         measurementsLastInterval.clear
         intervalStart = System.nanoTime()
       }
 
+    }
+  }
+
+  def printMeasurements {
+    val meanDurationLastInterval = mean(measurementsLastInterval.map(_._2))
+    durationsLastIntervals += meanDurationLastInterval
+    durationAllIntervals += meanDurationLastInterval
+    val throughputLastInterval = intervalThroughput
+    throughputLastIntervals += throughputLastInterval
+    throughputAllIntervals += throughputLastInterval
+
+    val intervalsLabel = f"# Mean throughput over last $nbIntervals intervals = " // this is the longest label
+    println(s"### $name (intervals of $intervalSize requests)".padTo(70, '#'))
+    println(s"# Total count = ".padTo(intervalsLabel.size, ' ') + f"$totalCount requests")
+    // duration: overall
+    println(s"# Mean duration over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationAllIntervals.mean}%2.2f ms")
+    // duration: last X intervals
+    println(f"# Mean duration over last $nbIntervals intervals = ".padTo(intervalsLabel.size, ' ') + f"${durationsLastIntervals.mean}%2.2f ms")
+    // duration: last interval
+    println("# Mean duration over last interval = ".padTo(intervalsLabel.size, ' ') + f"$meanDurationLastInterval%2.2f ms")
+    // throughput: overall
+    println("# Mean throughput over all intervals = ".padTo(intervalsLabel.size, ' ') + f"${throughputAllIntervals.mean}%2.2f requests/sec")
+    // throughput: last X intervals
+    println(intervalsLabel + f"${throughputLastIntervals.mean}%2.2f requests/sec")
+    // throughput: last interval
+    println("# Throughput of last interval = ".padTo(intervalsLabel.size, ' ') + f"$throughputLastInterval%2.2f requests/sec")
+    println("".padTo(70, '#'))
+
+    if (printIndividualMeasurements) {
+      for ((time, duration) <- measurementsLastInterval) {
+        println(f"Measurement: $time%.3f $duration%.3f")
+      }
     }
   }
 }

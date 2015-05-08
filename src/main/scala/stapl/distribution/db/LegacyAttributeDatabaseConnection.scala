@@ -123,7 +123,7 @@ class LegacyAttributeDatabaseConnection(host: String, port: Int, database: Strin
         case Some(conn) => {
           val createTablesPS = conn.prepareStatement("CREATE TABLE `attributes` (\n" +
             "  `id` int(11) NOT NULL AUTO_INCREMENT,\n" +
-            "  `entity_id` varchar(45) NOT NULL,\n" +
+            "  `entity_id` varchar(70) NOT NULL,\n" +
             "  `attribute_container_type` varchar(45) NOT NULL,\n" +
             "  `attribute_key` varchar(45) NOT NULL,\n" +
             "  `attribute_value` varchar(100) NOT NULL,\n" +

@@ -1,6 +1,7 @@
 package stapl.distribution.db.entities
 
 import scala.util.Random
+import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
 
 trait EntityManager {
 
@@ -27,6 +28,8 @@ trait EntityManager {
     val random = keys.toVector(Random.nextInt(keys.size))
     resources(random)
   }  
+  
+  def randomRequest() = AuthorizationRequest(randomSubject.id, "view", randomResource.id)
 
   protected def storeEntity(e: Entity) = {
     if (entities.contains(e.id)) {

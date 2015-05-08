@@ -28,9 +28,6 @@ import scala.concurrent.duration._
 import grizzled.slf4j.Logging
 import stapl.distribution.util.StatisticsActor
 import stapl.distribution.components.InitialPeakClientForCoordinatorGroup
-import stapl.distribution.util.Ehealth29RequestsGenerator
-import stapl.distribution.util.EhealthRandomRequestGenerator
-import stapl.distribution.util.RandomArtificialRequestGenerator
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import akka.util.Timeout
@@ -38,7 +35,7 @@ import scala.concurrent.Await
 import stapl.core.Decision
 import stapl.distribution.components.ClientRegistrationProtocol
 import stapl.distribution.components.SimpleDistributedCoordinatorLocater
-import stapl.distribution.db.entities.ArtificialEntityManager
+import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.db.MockAttributeDatabaseConnectionPool
 
 case class MultipleLocalCoordinatorsPerformanceTestConfig(nbCoordinators: Int = -1, nbWorkersPerCoordinator: Int = -1,
@@ -124,10 +121,8 @@ object MultipleLocalCoordinatorsPerformanceTest extends Logging {
 
         // no stats actor, just print out statistics at the end
         val stats = system.actorOf(Props.empty)
-        //val requestGenerator = new Ehealth29RequestsGenerator()
-        //val requestGenerator = new EhealthRandomRequestGenerator()
-        val requestGenerator = new RandomArtificialRequestGenerator(1000, 1000)
-        val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinatorLocater, config.nbRequestsPerCoordinator * nb, requestGenerator, stats), "client")
+        val em = new EhealthEntityManager(true)
+        val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinatorLocater, config.nbRequestsPerCoordinator * nb, em, stats), "client")
         val f = client ? "go"
         // wait for the "done" back (there should only be one result sent back here)
         Await.result(f, 3600 seconds)

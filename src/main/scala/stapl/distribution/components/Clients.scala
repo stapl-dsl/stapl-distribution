@@ -21,10 +21,9 @@ import util.control.Breaks._
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.components.ClientCoordinatorProtocol._
 import stapl.distribution.util.EvaluationEnded
-import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.Counter
 import stapl.distribution.db.entities.EntityManager
-import stapl.distribution.util.RequestGenerator
+import stapl.distribution.util.PrintStats
 
 class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
@@ -102,7 +101,7 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
   val timer = new Timer
 
   def sendRequest = {
-    val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+    val request = em.randomRequest
     val coordinator = coordinators.getCoordinatorFor(request)
     timer.time {
       val f = coordinator ? request
@@ -168,7 +167,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
   val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
   def sendRequest = {
-    val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+    val request = em.randomRequest
     val coordinator = coordinators.getCoordinatorFor(request)
     timer.time {
       val f = coordinator ? request
@@ -215,6 +214,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
         }
       }
       log.info(s"Client finished: $nb requests in ${timer.total} ms (mean: ${timer.mean} ms)")
+      stats ! PrintStats
     case msg => log.error(s"Received unknown message: $msg")
   }
 
@@ -237,7 +237,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int,
     case "go" =>
       timer.start
       for (i <- 1 to nb) {
-        val f = coordinator ! AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+        val f = coordinator ! em.randomRequest
       }
     case AuthorizationDecision(decision) =>
       waitingFor -= 1
@@ -252,7 +252,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int,
 }
 
 class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int,
-  requestGenerator: RequestGenerator, stats: ActorRef) extends Actor with ActorLogging {
+  em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -271,7 +271,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
       s = sender
       timer.start
       for (i <- 1 to nb) {
-        val request = requestGenerator.nextRequest
+        val request = em.randomRequest
         val coordinator = coordinators.getCoordinatorFor(request)
         coordinator ! request
       }
@@ -309,7 +309,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
       waitingFor = nbRequests
       timer.start
       for (i <- 1 to nbRequests) {
-        val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+        val request = em.randomRequest
         val coordinator = coordinators.getCoordinatorFor(request)
         coordinatorCounter.count(coordinator)
         coordinator ! request
@@ -358,7 +358,7 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
       case e: NumberFormatException =>
     }
     for (i <- 1 to nb) {
-      val request = AuthorizationRequest(em.randomSubject.id, "view", em.randomResource.id)
+      val request = em.randomRequest
       val coordinator = coordinators.getCoordinatorFor(request)
       coordinatorCounter.count(coordinator)
       coordinator ! request

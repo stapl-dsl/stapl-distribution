@@ -22,6 +22,7 @@ import stapl.distribution.db.AttributeDatabaseConnectionPool
 import stapl.core.Decision
 import stapl.distribution.db.entities.ehealth.Person
 import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
+import stapl.distribution.db.entities.EntityManager
 
 case class SimplePDPPerformanceTestConfig(databaseIP: String = "not-provided", databasePort: Int = -1,
   nbRuns: Int = -1)
@@ -49,12 +50,10 @@ object SimplePDPPerformanceTest extends App with Logging {
   // parser.parse returns Option[C]
   parser.parse(args, SimplePDPPerformanceTestConfig()) map { config =>
     import EhealthPolicy._
-    val em = new EhealthEntityManager
+    //val em = new EhealthEntityManager
+    val em = new EhealthEntityManager(true)
 
     val pool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
-
-    // reset the db
-    resetDB(pool)
 
     // set up the PDP
     val attributeFinder = new AttributeFinder()
@@ -68,6 +67,7 @@ object SimplePDPPerformanceTest extends App with Logging {
       (x._1, new Timer(s"Request (${subject.id},$action,${resource.id},$extraAttributes)"))
     }).toMap
     for (i <- 0 to config.nbRuns) {
+      println(s"Run #$i/${config.nbRuns}")
       for ((request, shouldBe) <- em.requests) {
         implicit val (subject, action, resource, extraAttributes) = request
         val timer = timers(request)
@@ -77,21 +77,11 @@ object SimplePDPPerformanceTest extends App with Logging {
         assert(shouldBe, r)
       }
     }
+    println(f"# Average over all requests = ${timers.values.map(_.mean).foldLeft(0.0)((a,b) => a + b) / timers.size.toDouble}%2.2f ms")
     println("#! Results")
     timers.values.foreach(x => println(x.toJSON()))
   } getOrElse {
     // arguments are bad, error message will have been displayed
-  }
-
-  def resetDB(pool: MySQLAttributeDatabaseConnectionPool) {
-    val db = pool.getConnection
-    info("Resetting databases")
-    db.cleanStart
-    info("Persisting entity data")
-    EhealthEntityManager().persist(db)
-    db.commit
-    db.close
-    info("Persisting done")
   }
 
   def assert(wanted: Result, actual: Result)(implicit subject: Person, action: String, resource: stapl.distribution.db.entities.ehealth.Resource, extraAttributes: List[(stapl.core.Attribute, stapl.core.ConcreteValue)]) = {

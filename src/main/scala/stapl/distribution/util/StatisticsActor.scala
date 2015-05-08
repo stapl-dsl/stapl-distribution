@@ -7,10 +7,12 @@ import akka.actor.Actor
  */
 case class EvaluationEnded(duration: Double = -1)
 
+case class PrintStats
+
 /**
  * An actor that wraps a ThroughputAndLatencyStatistics object.
  */
-class StatisticsActor(name: String, intervalSize: Int, nbIntervals: Int, printIndividualMeasurements: Boolean = false) extends Actor {
+class StatisticsActor(name: String, intervalSize: Int = 1000, nbIntervals: Int = 10, printIndividualMeasurements: Boolean = false) extends Actor {
 
   //val stats = new ThroughputStatistics(name, intervalSize, nbIntervals)
   val stats = new ThroughputAndLatencyStatistics(name, intervalSize, nbIntervals, printIndividualMeasurements)  
@@ -22,5 +24,10 @@ class StatisticsActor(name: String, intervalSize: Int, nbIntervals: Int, printIn
      */
     //case EvaluationEnded(duration) => stats.tick()
     case EvaluationEnded(duration) => stats.tick(duration)
+    
+    /**
+     * 
+     */
+    case PrintStats => stats.printMeasurements
   }
 }

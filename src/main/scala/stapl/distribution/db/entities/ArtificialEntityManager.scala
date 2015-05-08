@@ -1,6 +1,7 @@
 package stapl.distribution.db.entities
 
 import stapl.distribution.db.AttributeDatabaseConnection
+import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
 
 /**
  * Nothing more than concrete subtypes for now, but made this a
