@@ -20,7 +20,7 @@ import akka.pattern.ask
 import stapl.distribution.components.SequentialClientForConcurrentCoordinators
 import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
 import stapl.distribution.components.ClientCoordinatorProtocol.AuthorizationRequest
-import stapl.distribution.util.StatisticsActor
+import stapl.distribution.util.ThroughputAndLatencyStatisticsActor
 import com.hazelcast.config.Config
 import com.hazelcast.config.MapConfig
 import com.hazelcast.config.MapStoreConfig
@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory
 import grizzled.slf4j.Logging
 import stapl.distribution.components.SimpleDistributedCoordinatorLocater
 import stapl.distribution.components.ClientRegistrationProtocol
+import stapl.distribution.util.LatencyStatisticsActor
 
 case class SequentialClientForDistributedCoordinatorsConfig(
   ip: String = "not-provided", port: Int = -1,
@@ -147,7 +148,8 @@ object SequentialClientForDistributedCoordinatorsApp {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor], "Sequential clients", 0 /* no periodical output */, 10, false))
+      //val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor], "Sequential clients", 0 /* no periodical output */, 10, false))
+      val stats = system.actorOf(Props(classOf[LatencyStatisticsActor], "Sequential clients", config.nbThreads * config.nbRequests))
       val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForCoordinatorGroup], coordinatorLocater, em, stats)), "clients")
 
       println(s"Started ${config.nbThreads} sequential client threads that each will send ${config.nbRequests} requests to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")

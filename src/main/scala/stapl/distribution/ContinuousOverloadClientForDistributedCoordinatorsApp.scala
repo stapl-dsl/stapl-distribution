@@ -21,7 +21,7 @@ import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.ContinuousOverloadClientForCoordinatorGroup
 import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
-import stapl.distribution.util.StatisticsActor
+import stapl.distribution.util.ThroughputAndLatencyStatisticsActor
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
@@ -145,7 +145,7 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor],"Continuous overload clients",config.statsInterval,10,true))
+      val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor],"Continuous overload clients",config.statsInterval,10,true))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded

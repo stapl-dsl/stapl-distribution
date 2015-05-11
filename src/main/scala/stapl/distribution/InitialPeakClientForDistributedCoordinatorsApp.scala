@@ -19,7 +19,7 @@ import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.InitialPeakClientForCoordinatorGroup
 import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
-import stapl.distribution.util.StatisticsActor
+import stapl.distribution.util.ThroughputAndLatencyStatisticsActor
 import com.hazelcast.core.Hazelcast
 import com.hazelcast.config.Config
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
@@ -114,7 +114,7 @@ object InitialPeakClientForDistributedCoordinatorsApp {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[StatisticsActor], "Initial peak client", config.statsInterval, 10))
+      val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor], "Initial peak client", config.statsInterval, 10))
       
       val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinators, config.nbRequests, em, stats), "client")
       println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")

@@ -18,7 +18,7 @@ import scala.collection.mutable.ListBuffer
 class Timer(label: String = "unnamed-timer") {
 
   // timings in milliseconds
-  var timings = List[Double]()
+  val timings = ListBuffer[Double]()
   var last = -1.0
 
   var t0 = 0L
@@ -28,7 +28,7 @@ class Timer(label: String = "unnamed-timer") {
   def stop() = {
     t1 = System.nanoTime()
     last = duration
-    timings ::= last
+    timings += last
   }
   def duration() = (t1.toDouble - t0.toDouble) / 1000000.0
 
@@ -80,7 +80,7 @@ class Timer(label: String = "unnamed-timer") {
   }
 
   def reset = {
-    timings = List.empty
+    timings.clear
   }
 
   override def toString(): String = {

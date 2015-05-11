@@ -196,8 +196,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
         }
       }
     }
-    stats ! EvaluationEnded(timer.mean) // note: we only use the timer for a single value
-    timer.reset
+    stats ! EvaluationEnded(timer.last)
   }
 
   def receive = {

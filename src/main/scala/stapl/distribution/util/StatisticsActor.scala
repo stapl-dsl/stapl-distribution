@@ -10,9 +10,30 @@ case class EvaluationEnded(duration: Double = -1)
 case class PrintStats
 
 /**
+ * An actor that wraps a Timer object.
+ */
+class LatencyStatisticsActor(name: String, printAfterNbRequests: Int = -1) extends Actor {
+
+  val stats = new Timer()
+  
+  def receive = {
+
+    /**
+     * Duration in ms
+     */
+    case EvaluationEnded(duration) => {
+      stats.timings += duration
+      if(stats.count == printAfterNbRequests) {
+        stats.printHistogram(0.5)
+      }
+    }
+  }
+}
+
+/**
  * An actor that wraps a ThroughputAndLatencyStatistics object.
  */
-class StatisticsActor(name: String, intervalSize: Int = 1000, nbIntervals: Int = 10, printIndividualMeasurements: Boolean = false) extends Actor {
+class ThroughputAndLatencyStatisticsActor(name: String, intervalSize: Int = 1000, nbIntervals: Int = 10, printIndividualMeasurements: Boolean = false) extends Actor {
 
   //val stats = new ThroughputStatistics(name, intervalSize, nbIntervals)
   val stats = new ThroughputAndLatencyStatistics(name, intervalSize, nbIntervals, printIndividualMeasurements)  
