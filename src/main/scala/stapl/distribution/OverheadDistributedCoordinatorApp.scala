@@ -110,8 +110,8 @@ object OverheadDistributedCoordinatorApp extends App with Logging {
 
     val results = scala.collection.mutable.Map[Int, (Double, Double)]()
 
-    //for (nbCoordinators <- 1 to config.upperNbCoordinators) {
-    for (nbCoordinators <- 2 to 2) {
+    for (nbCoordinators <- 1 to config.upperNbCoordinators) {
+    //for (nbCoordinators <- 2 to 2) {
       println()
       println(s"Starting test with $nbCoordinators coordinators")
       val timer = new Timer(s"Through $nbCoordinators distributed coordinators")
