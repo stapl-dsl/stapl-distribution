@@ -35,7 +35,7 @@ class Trace(val evaluationId: String) {
       details(step.stop) = s"${step.component}:${step.label} (stop)"
     }
     // print the different starts and stops in order
-    println("Trace of evaluation $evalautionId")
+    println(s"Trace of evaluation $evaluationId")
     println("===========================================")
     val sortedTimestamps = details.keys.toList.sorted
     val startTime = sortedTimestamps(0)
