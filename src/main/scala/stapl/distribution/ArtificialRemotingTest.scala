@@ -1,38 +1,20 @@
 package stapl.distribution
 
-import akka.actor.ActorRef
-import akka.actor.ActorLogging
-import akka.actor.Actor
-import akka.actor.Terminated
-import akka.actor.ActorSystem
-import com.typesafe.config.ConfigFactory
-import akka.actor.Props
-import scala.collection.mutable.{ Map, Queue }
-import stapl.distribution.components.Coordinator
-import com.hazelcast.config.Config
-import com.hazelcast.config.MapConfig
-import com.hazelcast.config.MapStoreConfig
-import stapl.distribution.db.AttributeMapStore
-import com.hazelcast.core.Hazelcast
-import stapl.distribution.db.AttributeDatabaseConnectionPool
-import stapl.distribution.db.HazelcastAttributeDatabaseConnectionPool
-import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
-import stapl.distribution.db.MockAttributeDatabaseConnectionPool
-import stapl.distribution.components.DistributedCoordinator
-import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
-import stapl.examples.policies.EhealthPolicy
-import stapl.distribution.policies.ConcurrencyPolicies
-import stapl.distribution.components.DistributedCoordinatorManager
-import scala.concurrent.Await
-import scala.concurrent.duration._
-import java.lang.management.ManagementFactory
-import java.lang.management.GarbageCollectorMXBean
-import javax.management.ObjectName
-import akka.util.Timeout
-import scala.concurrent.Await
-import akka.pattern.ask
-import stapl.distribution.util.Timer
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.Await
+import scala.concurrent.duration.DurationInt
+import com.typesafe.config.ConfigFactory
+import akka.actor.Actor
+import akka.actor.ActorRef
+import akka.actor.ActorSystem
+import akka.actor.Props
+import akka.actor.actorRef2Scala
+import akka.pattern.ask
+import akka.util.Timeout
+import stapl.distribution.db.entities.EntityManager
+import stapl.distribution.db.entities.ehealth.EhealthEntityManager
+import stapl.distribution.components.ClientCoordinatorProtocol
+import stapl.core.Deny
 
 object NodeAApp {
 
@@ -50,19 +32,23 @@ object NodeAApp {
     val nodeB = Await.result(selection.resolveOne(3.seconds), 5.seconds)
 
     // warmup
+    println("Warmup")
     for (i <- 1 to 1000) {
       Await.result(nodeB ? System.nanoTime(), 5.seconds) match {
-        case timings: (Long, Long, Long) =>
-          // nothing to do
+        case msg => // nothing to do
       }
     }    
     
     // the test
+    println("Tests")
     val totals, steps1, steps2, steps3 = ListBuffer[Double]()
     for (i <- 1 to 10000) {
+      if(i % 1000 == 0) {
+        println(s"$i")
+      }
       Await.result(nodeB ? System.nanoTime(), 5.seconds) match {
-        case timings: (Long, Long, Long) =>
-          val (start, atNodeB, atNodeC) = timings
+        case timings: (Long, Long, Long, ClientCoordinatorProtocol.AuthorizationDecision) =>
+          val (start, atNodeB, atNodeC, decision) = timings
           val stop = System.nanoTime()
           totals += duration(start, stop)
           steps1 += duration(start, atNodeB)
@@ -81,7 +67,7 @@ object NodeAApp {
     printHistogram(steps3)
 
     /**
-     * Helper function to print a list of timings as a historgram
+     * Helper function to print a list of timings as a histogram
      */
     def printHistogram(timings: Seq[Double]) = {
       val binSize = 0.5
@@ -142,9 +128,12 @@ object NodeBApp {
 }
 class NodeBActor(nodeC: ActorRef) extends Actor {
 
+  val em = EhealthEntityManager()
+  
   def receive = {
     case start: Long =>
-      nodeC ! (sender, start, System.nanoTime())
+      val request = em.randomRequest
+      nodeC ! (sender, start, System.nanoTime(), ClientCoordinatorProtocol.AuthorizationRequest(request.subjectId, request.actionId, request.resourceId, request.extraAttributes))
   }
 }
 
@@ -162,11 +151,11 @@ object NodeCApp {
   }
 }
 class NodeCActor extends Actor {
-
+  
   def receive = {
-    case msg: (ActorRef, Long, Long) =>
-      val (originalSender, start, atNodeB) = msg
-      originalSender ! (start, atNodeB, System.nanoTime())
+    case msg: (ActorRef, Long, Long, ClientCoordinatorProtocol.AuthorizationRequest) =>
+      val (originalSender, start, atNodeB, request) = msg
+      originalSender ! (start, atNodeB, System.nanoTime(), ClientCoordinatorProtocol.AuthorizationDecision("evaluationId", Deny))
   }
 }
 

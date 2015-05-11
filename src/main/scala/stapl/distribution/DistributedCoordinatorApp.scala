@@ -211,7 +211,7 @@ object DistributedCoordinatorApp {
       val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], policies(config.policy),
         config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager,
         config.enableStatsIn, config.enableStatsOut, config.statsOutInterval, config.enableStatsWorkers, config.enableStatsDb,
-        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration).withDispatcher("coordinator-pinned-dispatcher"), "coordinator")
+        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
 
       // enable tracing if requested
         if(config.enableTracing) {
