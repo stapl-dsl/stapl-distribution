@@ -555,7 +555,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
         // return the result to the client
         id2request.remove(id)
         val client = clients.get(id)
-        client ! AuthorizationDecision(result.result.decision)
+        client ! AuthorizationDecision(result.id, result.result.decision)
         stats.tick
       } else {
         // the commit failed => restart the evaluation (add the necesary

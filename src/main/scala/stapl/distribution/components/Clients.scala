@@ -24,6 +24,7 @@ import stapl.distribution.util.EvaluationEnded
 import stapl.distribution.util.Counter
 import stapl.distribution.db.entities.EntityManager
 import stapl.distribution.util.PrintStats
+import stapl.distribution.util.Trace
 
 class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) extends Actor with ActorLogging {
 
@@ -44,7 +45,7 @@ class SequentialClient(coordinator: ActorRef, request: AuthorizationRequest) ext
           println("WTF: None received from ping???")
           Deny
         case Some(result) => result match {
-          case Success(AuthorizationDecision(decision)) =>
+          case Success(AuthorizationDecision(id, decision)) =>
             log.debug(s"Result of policy evaluation was: $decision")
             decision
           case Success(x) =>
@@ -111,7 +112,7 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
           println("WTF: None received from ping???")
           Deny
         case Some(result) => result match {
-          case Success(AuthorizationDecision(decision)) =>
+          case Success(AuthorizationDecision(id, decision)) =>
             log.debug(s"Result of policy evaluation was: $decision")
             decision
           case Success(x) =>
@@ -177,7 +178,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
           println("WTF: None received from ping???")
           Deny
         case Some(result) => result match {
-          case Success(AuthorizationDecision(decision)) =>
+          case Success(AuthorizationDecision(id, decision)) =>
             log.debug(s"Result of policy evaluation was: $decision")
             decision
           case Success(x) =>
@@ -239,7 +240,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int,
       for (i <- 1 to nb) {
         val f = coordinator ! em.randomRequest
       }
-    case AuthorizationDecision(decision) =>
+    case AuthorizationDecision(id, decision) =>
       waitingFor -= 1
       if (waitingFor == 0) {
         timer.stop()
@@ -275,7 +276,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
         val coordinator = coordinators.getCoordinatorFor(request)
         coordinator ! request
       }
-    case AuthorizationDecision(decision) =>
+    case AuthorizationDecision(id, decision) =>
       waitingFor -= 1
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
       log.debug(s"Waiting for: $waitingFor")
@@ -314,7 +315,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
         coordinatorCounter.count(coordinator)
         coordinator ! request
       }
-    case AuthorizationDecision(decision) =>
+    case AuthorizationDecision(id, decision) =>
       waitingFor -= 1
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
       log.debug(s"$waitingFor")
@@ -339,7 +340,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
 /**
  * A simple client for testing that only sends a request when the user indicates this.
  */
-class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
+class TestClientForCoordinatorGroup(coordinators: CoordinatorLocater,
   em: EntityManager) extends Actor with ActorLogging {
 
   import ClientProtocol._
@@ -363,24 +364,44 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
         val dur = duration.toInt
         var continue = true
         var nbTries = 0
-        while(continue) {
+        while (continue) {
           val request = em.randomRequest
           val coordinator = coordinators.getCoordinatorFor(request)
           coordinatorCounter.count(coordinator)
-          timer.time {
+          val evaluationId = timer.time {
             Await.result(coordinator ? request, 180 seconds) match {
-              case AuthorizationDecision(decision) =>
+              case AuthorizationDecision(id, decision) =>
+                id
               case x =>
                 throw new RuntimeException(s"Something went wrong: $x")
             }
           }
           nbTries += 1
-          if(timer.last > dur) {
-        	  log.info(s"Received reply with duration of ${timer.last} ms after $nbTries tries")
-        	  continue = false
+          if (timer.last > dur) {
+            continue = false
+            log.info(s"Received reply with duration of ${timer.last} ms after $nbTries tries")
+            // collect and print the trace of this request
+            val coordinatorForSubject = coordinators.getCoordinatorForSubject(request.subjectId)
+            val traceStepsForSubject = Await.result(coordinatorForSubject ? TraceProtocol.GetTrace(evaluationId), 180 seconds) match {
+              case TraceProtocol.Trace(steps) =>
+                steps
+              case x =>
+                throw new RuntimeException(s"Something went wrong: $x")
+            }
+            val coordinatorForResource = coordinators.getCoordinatorForResource(request.resourceId)
+            val traceStepsForResource = Await.result(coordinatorForResource ? TraceProtocol.GetTrace(evaluationId), 180 seconds) match {
+              case TraceProtocol.Trace(steps) =>
+                steps
+              case x =>
+                throw new RuntimeException(s"Something went wrong: $x")
+            }
+            val trace = new Trace(evaluationId)
+            trace.steps ++= traceStepsForSubject
+            trace.steps ++= traceStepsForResource
+            trace.prettyPrint
           }
         }
-        
+
       case numberRegex(number) =>
         val nb = number.toInt
         for (i <- 1 to nb) {
@@ -389,7 +410,7 @@ class TestClientForCoordinatorGroup(coordinators: CoordinatorGroup,
           coordinatorCounter.count(coordinator)
           timer.time {
             Await.result(coordinator ? request, 180 seconds) match {
-              case AuthorizationDecision(decision) =>
+              case AuthorizationDecision(id, decision) =>
               case x =>
                 throw new RuntimeException(s"Something went wrong: $x")
             }

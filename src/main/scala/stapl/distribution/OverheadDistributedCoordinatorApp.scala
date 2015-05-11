@@ -181,7 +181,7 @@ object OverheadDistributedCoordinatorApp extends App with Logging {
     val coordinator = coordinatorLocater.getCoordinatorFor(request)
     val f = coordinator ? request
     Await.ready(f, 180 seconds).value match {
-      case Some(Success(AuthorizationDecision(decision))) => // nothing to do
+      case Some(Success(AuthorizationDecision(id,decision))) => // nothing to do
       case x =>
         system.shutdown
         throw new RuntimeException(s"Something went wrong: $x")

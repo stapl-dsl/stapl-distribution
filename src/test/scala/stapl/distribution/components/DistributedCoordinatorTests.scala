@@ -153,7 +153,7 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
         val result = coordinatorLocater.getCoordinatorFor(request) ? request
         println("sent request")
         result onComplete {
-          case Success(AuthorizationDecision(decision)) =>
+          case Success(AuthorizationDecision(id,decision)) =>
             latch.countDown()
             println(s"latch is ${latch.getCount()}")
             if (decision == Permit) {
@@ -199,7 +199,7 @@ class DistributedCoordinatorTest extends AssertionsForJUnit {
         val result = coordinatorLocater.getCoordinatorFor(request) ? request
         println("sent request")
         result onComplete {
-          case Success(AuthorizationDecision(decision)) =>
+          case Success(AuthorizationDecision(id,decision)) =>
             latch.countDown()
             println(s"latch is ${latch.getCount()}")
             if (decision == Permit) {

@@ -764,7 +764,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
             // return the result to the client
             id2original.remove(id)
             val client = clients(id)
-            client ! AuthorizationDecision(result.result.decision)
+            client ! AuthorizationDecision(result.id, result.result.decision)
             clients.remove(id)
             stats.tick
           } else {
@@ -865,7 +865,7 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
       ???
       // 3. send result to client
       val client = clients(id)
-      client ! AuthorizationDecision(result.result.decision)
+      client ! AuthorizationDecision(result.id, result.result.decision)
       clients.remove(id)
       stats.tick
 

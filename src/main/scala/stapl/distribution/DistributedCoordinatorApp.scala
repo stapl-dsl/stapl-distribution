@@ -28,6 +28,7 @@ import scala.concurrent.duration._
 import java.lang.management.ManagementFactory
 import java.lang.management.GarbageCollectorMXBean
 import javax.management.ObjectName
+import stapl.distribution.util.Tracer
 
 case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: String = "not-provided", port: Int = -1,
   nbWorkers: Int = -1, nbUpdateWorkers: Int = -1, databaseIP: String = "not-provided", databasePort: Int = -1,
@@ -35,7 +36,8 @@ case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: S
   policy: String = "not-provided",
   logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
   statsOutInterval: Int = 2000, enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
-  mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0)
+  mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0,
+  enableTracing: Boolean = false)
 
 object DistributedCoordinatorApp {
 
@@ -145,6 +147,10 @@ object DistributedCoordinatorApp {
         c.copy(mockEvaluationDuration = x)
       } text ("The duration of a mock evaluation in ms. Default: 0ms. Only used when --mock-evaluation-duration is set.")
 
+      opt[Unit]("enable-tracing") action { (x, c) =>
+        c.copy(enableTracing = true)
+      } text (s"Flag to indicate that the coordinator should keep traces of evaluations.")
+
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -207,23 +213,28 @@ object DistributedCoordinatorApp {
         config.enableStatsIn, config.enableStatsOut, config.statsOutInterval, config.enableStatsWorkers, config.enableStatsDb,
         config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration).withDispatcher("coordinator-pinned-dispatcher"), "coordinator")
 
-//      // listen for garbage collection
-//      new Thread(new Runnable {
-//        var nbCollections = 0
-//        
-//        def run() {
-//          import collection.JavaConversions._
-//          while (true) {
-//            val server = ManagementFactory.getPlatformMBeanServer()
-//            val gcName = new ObjectName(ManagementFactory.GARBAGE_COLLECTOR_MXBEAN_DOMAIN_TYPE + ",*")
-//            for (name <- server.queryNames(gcName, null)) {
-//              val gc = ManagementFactory.newPlatformMXBeanProxy(server, name.getCanonicalName(), classOf[GarbageCollectorMXBean])
-//              println(s"$name -> ${gc.getCollectionCount()}")
-//            }
-//            Thread.sleep(1000)
-//          }
-//        }
-//      }).start()
+      // enable tracing if requested
+        if(config.enableTracing) {
+          Tracer.enable()
+        }
+
+      //      // listen for garbage collection
+      //      new Thread(new Runnable {
+      //        var nbCollections = 0
+      //        
+      //        def run() {
+      //          import collection.JavaConversions._
+      //          while (true) {
+      //            val server = ManagementFactory.getPlatformMBeanServer()
+      //            val gcName = new ObjectName(ManagementFactory.GARBAGE_COLLECTOR_MXBEAN_DOMAIN_TYPE + ",*")
+      //            for (name <- server.queryNames(gcName, null)) {
+      //              val gc = ManagementFactory.newPlatformMXBeanProxy(server, name.getCanonicalName(), classOf[GarbageCollectorMXBean])
+      //              println(s"$name -> ${gc.getCollectionCount()}")
+      //            }
+      //            Thread.sleep(1000)
+      //          }
+      //        }
+      //      }).start()
 
       var mockString = "";
       if (config.mockDecision) {

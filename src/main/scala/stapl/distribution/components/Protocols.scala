@@ -6,6 +6,8 @@ import stapl.core.Result
 import stapl.core.Attribute
 import stapl.core.ConcreteValue
 import stapl.core.AttributeContainerType
+import stapl.distribution.util.TraceStep
+import stapl.distribution.util.Trace
 
 /**
  * For communicating with clients (mainly for testing purposes)
@@ -20,7 +22,7 @@ object ClientProtocol {
 object ClientCoordinatorProtocol {
   case class AuthorizationRequest(subjectId: String, actionId: String, resourceId: String,
     extraAttributes: List[(Attribute, ConcreteValue)] = List())
-  case class AuthorizationDecision(decision: Decision)
+  case class AuthorizationDecision(evaluationId: String, decision: Decision)
 }
 
 /**
@@ -156,4 +158,20 @@ object DistributedCoordinatorConfigurationProtocol {
    * 		An error message.
    */
   case class SetNumberCoordinatorsFailed(msg: String)
+}
+
+/**
+ * For collecting traces.
+ */
+object TraceProtocol {
+  
+  /**
+   * Requests the trace for a single policy evaluation.
+   */
+  case class GetTrace(policyEvaluationId: String)
+  
+  /**
+   * For sending back the trace to the actor that requested it.
+   */
+  case class Trace(steps: List[TraceStep])
 }

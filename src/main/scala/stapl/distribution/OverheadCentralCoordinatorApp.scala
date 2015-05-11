@@ -82,7 +82,7 @@ object OverheadCentralCoordinatorApp extends App with Logging {
       timer time {
         val f = coordinator ? request
         Await.ready(f, 180 seconds).value match {
-          case Some(Success(AuthorizationDecision(decision))) => // nothing to do
+          case Some(Success(AuthorizationDecision(id,decision))) => // nothing to do
           case x => 
             throw new RuntimeException(s"WTF did I receive: $x")
         }

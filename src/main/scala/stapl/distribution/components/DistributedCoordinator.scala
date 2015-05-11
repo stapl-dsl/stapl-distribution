@@ -23,6 +23,7 @@ import scala.util.Failure
 import scala.util.Random
 import scala.util.Success
 import akka.pattern.ask
+import stapl.distribution.util.Tracer
 
 /**
  *  This is a coordinator that is part of a distributed group of coordinators. This means
@@ -59,7 +60,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
       coordinatorId = id
       coordinatorLocater.setCoordinators(coordinators.map(_._2))
       log.info(s"Successfully registered with coordinatorManager. I have received id $id and the list of coordinators: $coordinators")
-    case x => 
+    case x =>
       log.error(s"Failed to register with the coordinator manager, shutting down. Received result: $x")
       // synchronous suicide
       throw new RuntimeException(s"Failed to register with the coordinator manager, shutting down. Received result: $x")
@@ -144,11 +145,11 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
    * ACTOR FUNCTIONALITY
    */
   def receive = {
-    
+
     /**
      * From the DistributedCoordinatorManager
      */
-    case DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(coordinators) =>      
+    case DistributedCoordinatorRegistrationProtocol.ListOfCoordinatorsWasUpdated(coordinators) =>
       coordinatorLocater.setCoordinators(coordinators.map(_._2))
       log.info(s"Received updated list of coordinators: $coordinators")
 
@@ -199,37 +200,39 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
     case AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes) =>
       inputStats.tick
       val client = sender
-      if (mockDecision) {
-        client ! AuthorizationDecision(Deny)
-      } else {
-        // this is a request from a client => construct an id
-        val id = constructNextId()
-        // store the client to forward the result later on
-        clients(id) = client
-        // construct the internal request
-        val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
-        // store the original
-        id2original(id) = original
-        // In case of intelligent clients, we should only have received this request
-        // if we should manage the subject of the request. In case of unintelligent 
-        // clients, we could forward the request to the appropriate coordinator.
-        coordinatorLocater.whatShouldIManage(self, original) match {
-          case BOTH =>
-            log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage both => queuing it immediately)")
-            // add the attributes according to our administration
-            val updated = concurrencyController.startForBoth(original)
-            // forward the updated request to one of our workers
-            externalWorkQ.enqueue((updated, self))
-            notifyWorkers
-          case ONLY_SUBJECT =>
-            log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
-            val updated = concurrencyController.startForSubject(original)
-            // ask the other coordinator to start the actual evaluation 
-            // (the result will be sent directly to us)
-            coordinatorLocater.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
-          case _ =>
-            // we could forward here. For now: log an error
-            log.error(s"[Evaluation ${id}] Received authorization request for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
+      // this is a request from a client => construct an id
+      val id = constructNextId()
+      Tracer.trace(id, s"Coordinator#$coordinatorId", "AuthorizationRequest") {
+        if (mockDecision) {
+          client ! AuthorizationDecision(id, Deny)
+        } else {
+          // store the client to forward the result later on
+          clients(id) = client
+          // construct the internal request
+          val original = new PolicyEvaluationRequest(id, Top, subjectId, actionId, resourceId, extraAttributes)
+          // store the original
+          id2original(id) = original
+          // In case of intelligent clients, we should only have received this request
+          // if we should manage the subject of the request. In case of unintelligent 
+          // clients, we could forward the request to the appropriate coordinator.
+          coordinatorLocater.whatShouldIManage(self, original) match {
+            case BOTH =>
+              log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage both => queuing it immediately)")
+              // add the attributes according to our administration
+              val updated = concurrencyController.startForBoth(original)
+              // forward the updated request to one of our workers
+              externalWorkQ.enqueue((updated, self))
+              notifyWorkers
+            case ONLY_SUBJECT =>
+              log.debug(s"[Evaluation ${id}] Received authorization request: ($subjectId, $actionId, $resourceId) from $client (I should manage only the SUBJECT => contacting the other coordinator)")
+              val updated = concurrencyController.startForSubject(original)
+              // ask the other coordinator to start the actual evaluation 
+              // (the result will be sent directly to us)
+              coordinatorLocater.getCoordinatorForResource(resourceId) ! ManageResourceAndStartEvaluation(updated)
+            case _ =>
+              // we could forward here. For now: log an error
+              log.error(s"[Evaluation ${id}] Received authorization request for which I am not responsible: ${AuthorizationRequest(subjectId, actionId, resourceId, extraAttributes)}")
+          }
         }
       }
 
@@ -240,15 +243,17 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * the given request.
      */
     case ManageResourceAndStartEvaluation(updatedRequest) =>
-      // log
-      log.debug(s"[Evaluation ${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
-      // add the attributes according to our own administration
-      val updatedAgain = concurrencyController.startForResource(updatedRequest)
-      // forward the request to one of our workers
-      // note: the result should be sent to the other coordinator (i.e., the sender
-      // of this StartRequestAndManageResource request)
-      externalWorkQ.enqueue((updatedAgain, sender))
-      notifyWorkers
+      Tracer.trace(updatedRequest.id, s"Coordinator#$coordinatorId", "") {
+        // log
+        log.debug(s"[Evaluation ${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
+        // add the attributes according to our own administration
+        val updatedAgain = concurrencyController.startForResource(updatedRequest)
+        // forward the request to one of our workers
+        // note: the result should be sent to the other coordinator (i.e., the sender
+        // of this StartRequestAndManageResource request)
+        externalWorkQ.enqueue((updatedAgain, sender))
+        notifyWorkers
+      }
 
     /**
      * For a coordinator managing the RESOURCE.
@@ -257,15 +262,17 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * of the request and that coordinator has restarted the evaluation.
      */
     case ManageResourceAndRestartEvaluation(updatedRequest) =>
-      // log
-      log.debug(s"[Evaluation #${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
-      // add the attributes according to our own administration
-      val updatedAgain = concurrencyController.restartForResource(updatedRequest)
-      // forward the updated request to our foreman manager
-      // note: the result should be sent to the other coordinator (i.e., the sender
-      // of this StartRequestAndManageResource request)
-      externalWorkQ.enqueue((updatedAgain, sender))
-      notifyWorkers
+      Tracer.trace(updatedRequest.id, s"Coordinator#$coordinatorId", "") {
+        // log
+        log.debug(s"[Evaluation #${updatedRequest.id}] Queueing $updatedRequest via $sender (I should manage only the RESOURCE)")
+        // add the attributes according to our own administration
+        val updatedAgain = concurrencyController.restartForResource(updatedRequest)
+        // forward the updated request to our foreman manager
+        // note: the result should be sent to the other coordinator (i.e., the sender
+        // of this StartRequestAndManageResource request)
+        externalWorkQ.enqueue((updatedAgain, sender))
+        notifyWorkers
+      }
 
     /**
      * For a coordinator managing the SUBJECT.
@@ -274,75 +281,77 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * started => try to commit it.
      */
     case result: PolicyEvaluationResult =>
-      val id = result.id
-      val original = id2original(id)
-      log.debug(s"[Evaluation ${id}] Received authorization decision: ($id, $result) Trying to commit.")
-      // check what we manage: SUBJECT or RESOURCE or BOTH
-      // Note: we have to take into account the special case in which we manage 
-      //			BOTH the SUBJECT and the RESOURCE in order to be able to remove 
-      //			the state if we can commit (i.e., removing the state in case that
-      //			we manage both the subject and the resource would lead to errors if we
-      //			then send a message to ourselves to commit for the subject/resource
-      //			after having committed for the resource/subject).
-      coordinatorLocater.whatShouldIManage(self, original) match {
-        case BOTH =>
-          // try to commit for both the subject and the resource
-          if (concurrencyController.commitForBoth(result)) {
-            log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for BOTH")
-            // the commit succeeded => remove the request from our administration and 
-            // return the result to the client
-            id2original.remove(id)
-            val client = clients(id)
-            client ! AuthorizationDecision(result.result.decision)
-            clients.remove(id)
-            outputStats.tick
-          } else {
-            log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for BOTH, restarting it")
-            // the commit failed => restart the evaluation (add the necessary
-            // attributes to the original again)
-            // note: the concurrency controller will have already cleaned up its state
-            // in the commitForBoth() method
-            val updated = concurrencyController.startForBoth(original)
-            externalWorkQ.enqueue((updated, self))
-            notifyWorkers
-          }
-        case ONLY_SUBJECT =>
-          // try to commit for the subject
-          if (concurrencyController.commitForSubject(result)) {
-            log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the SUBJECT, checking with the other coordinator")
-            // only forward the resource attribute updates, we have already processed the rest
-            def isResourceChangeAttributeObligationAction(x: ConcreteObligationAction): Boolean = {
-              x match {
-                case change: ConcreteChangeAttributeObligationAction =>
-                  change.attribute.cType match {
-                    case stapl.core.RESOURCE => true
-                    case _ => false
-                  }
-                case _ => false
-              }
+      Tracer.trace(result.id, s"Coordinator#$coordinatorId", "PolicyEvaluationResult") {
+        val id = result.id
+        val original = id2original(id)
+        log.debug(s"[Evaluation ${id}] Received authorization decision: ($id, $result) Trying to commit.")
+        // check what we manage: SUBJECT or RESOURCE or BOTH
+        // Note: we have to take into account the special case in which we manage 
+        //			BOTH the SUBJECT and the RESOURCE in order to be able to remove 
+        //			the state if we can commit (i.e., removing the state in case that
+        //			we manage both the subject and the resource would lead to errors if we
+        //			then send a message to ourselves to commit for the subject/resource
+        //			after having committed for the resource/subject).
+        coordinatorLocater.whatShouldIManage(self, original) match {
+          case BOTH =>
+            // try to commit for both the subject and the resource
+            if (concurrencyController.commitForBoth(result)) {
+              log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for BOTH")
+              // the commit succeeded => remove the request from our administration and 
+              // return the result to the client
+              id2original.remove(id)
+              val client = clients(id)
+              client ! AuthorizationDecision(result.id, result.result.decision)
+              clients.remove(id)
+              outputStats.tick
+            } else {
+              log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for BOTH, restarting it")
+              // the commit failed => restart the evaluation (add the necessary
+              // attributes to the original again)
+              // note: the concurrency controller will have already cleaned up its state
+              // in the commitForBoth() method
+              val updated = concurrencyController.startForBoth(original)
+              externalWorkQ.enqueue((updated, self))
+              notifyWorkers
             }
-            val filtered = result.result.obligationActions filter (isResourceChangeAttributeObligationAction(_))
-            val filteredResult = PolicyEvaluationResult(result.id, result.result.copy(obligationActions = filtered))
-            // ...and ask the other coordinator to commit the rest 
-            // Note: the result of getCoordinatorForResource() should be the same as at 
-            // the start (in other words, the system currently does not support adding or
-            // removing coordinators at run-time)
-            coordinatorLocater.getCoordinatorForResource(original.resourceId) ! TryCommitForResource(filteredResult)
-          } else {
-            log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for the SUBJECT, restarting it")
-            // the commit failed => restart the evaluation (add the necessary
-            // attributes to the original again)
-            // note: the concurrency controller will have already cleaned up its state
-            // in the commitForSubject() method
-            val original = id2original(id)
-            val updated = concurrencyController.startForSubject(original)
-            // ask the other coordinator to restart as well. This coordinator will 
-            // redo the actual evaluation (but the result will be sent to us).
-            coordinatorLocater.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
-          }
-        case x =>
-          // this should never happen
-          throw new RuntimeException(s"I don't know what to do with this. Original = $original. I should manage: $x")
+          case ONLY_SUBJECT =>
+            // try to commit for the subject
+            if (concurrencyController.commitForSubject(result)) {
+              log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the SUBJECT, checking with the other coordinator")
+              // only forward the resource attribute updates, we have already processed the rest
+              def isResourceChangeAttributeObligationAction(x: ConcreteObligationAction): Boolean = {
+                x match {
+                  case change: ConcreteChangeAttributeObligationAction =>
+                    change.attribute.cType match {
+                      case stapl.core.RESOURCE => true
+                      case _ => false
+                    }
+                  case _ => false
+                }
+              }
+              val filtered = result.result.obligationActions filter (isResourceChangeAttributeObligationAction(_))
+              val filteredResult = PolicyEvaluationResult(result.id, result.result.copy(obligationActions = filtered))
+              // ...and ask the other coordinator to commit the rest 
+              // Note: the result of getCoordinatorForResource() should be the same as at 
+              // the start (in other words, the system currently does not support adding or
+              // removing coordinators at run-time)
+              coordinatorLocater.getCoordinatorForResource(original.resourceId) ! TryCommitForResource(filteredResult)
+            } else {
+              log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for the SUBJECT, restarting it")
+              // the commit failed => restart the evaluation (add the necessary
+              // attributes to the original again)
+              // note: the concurrency controller will have already cleaned up its state
+              // in the commitForSubject() method
+              val original = id2original(id)
+              val updated = concurrencyController.startForSubject(original)
+              // ask the other coordinator to restart as well. This coordinator will 
+              // redo the actual evaluation (but the result will be sent to us).
+              coordinatorLocater.getCoordinatorForResource(original.resourceId) ! ManageResourceAndRestartEvaluation(updated)
+            }
+          case x =>
+            // this should never happen
+            throw new RuntimeException(s"I don't know what to do with this. Original = $original. I should manage: $x")
+        }
       }
 
     /**
@@ -356,24 +365,26 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * restart the evaluation by just sending us the start command again.
      */
     case TryCommitForResource(result) =>
-      val id = result.id
-      log.debug(s"[Evaluation ${id}] Received result to commit evaluation $id for the resource")
-      if (concurrencyController.commitForResource(result)) {
-        log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the RESOURCE")
-        // Note: there are no tentative updates to be done here: the other coordinator
-        // saved its updates tentatively, we can process our resource updates immediately
-        // (actually, the concurrency controller will have done that in commitForResource()).
-        // So, we just have to answer to the sender that the commit succeeded.
-        sender ! CommitForResourceSucceeded(result)
-      } else {
-        log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for the RESOURCE => cleaning up " +
-          "internal state (we will build it up again when the coordinator askes us to start " +
-          "the evaluation again later on)")
-        // 1. Clean up: we do not have state ourselves for this if we only manage the 
-        // RESOURCE and the concurrency controller will already have cleaned up its state,
-        // so nothing to do for us actually.
-        // 2. Answer to the sender that the commit failed.
-        sender ! CommitForResourceFailed(result)
+      Tracer.trace(result.id, s"Coordinator#$coordinatorId", "TryCommitForResource") {
+        val id = result.id
+        log.debug(s"[Evaluation ${id}] Received result to commit evaluation $id for the resource")
+        if (concurrencyController.commitForResource(result)) {
+          log.debug(s"[Evaluation ${id}] The commit for request $id SUCCEEDED for the RESOURCE")
+          // Note: there are no tentative updates to be done here: the other coordinator
+          // saved its updates tentatively, we can process our resource updates immediately
+          // (actually, the concurrency controller will have done that in commitForResource()).
+          // So, we just have to answer to the sender that the commit succeeded.
+          sender ! CommitForResourceSucceeded(result)
+        } else {
+          log.debug(s"[Evaluation ${id}] The commit for request $id FAILED for the RESOURCE => cleaning up " +
+            "internal state (we will build it up again when the coordinator askes us to start " +
+            "the evaluation again later on)")
+          // 1. Clean up: we do not have state ourselves for this if we only manage the 
+          // RESOURCE and the concurrency controller will already have cleaned up its state,
+          // so nothing to do for us actually.
+          // 2. Answer to the sender that the commit failed.
+          sender ! CommitForResourceFailed(result)
+        }
       }
 
     /**
@@ -385,17 +396,19 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * client.
      */
     case CommitForResourceSucceeded(result) =>
-      val id = result.id
-      log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id SUCCEEDED for the RESOURCE => wrap up")
-      // 1. remove the request from our administration
-      id2original.remove(id)
-      // 2. finalize tentative attribute updates
-      concurrencyController.finalizeCommitForSubject(result.id)
-      // 3. send result to client
-      val client = clients(id)
-      client ! AuthorizationDecision(result.result.decision)
-      clients.remove(id)
-      outputStats.tick
+      Tracer.trace(result.id, s"Coordinator#$coordinatorId", "CommitForResourceSucceeded") {
+        val id = result.id
+        log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id SUCCEEDED for the RESOURCE => wrap up")
+        // 1. remove the request from our administration
+        id2original.remove(id)
+        // 2. finalize tentative attribute updates
+        concurrencyController.finalizeCommitForSubject(result.id)
+        // 3. send result to client
+        val client = clients(id)
+        client ! AuthorizationDecision(result.id, result.result.decision)
+        clients.remove(id)
+        outputStats.tick
+      }
 
     /**
      * For a coordinator managing the SUBJECT.
@@ -407,17 +420,19 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * attribute updates to be restarted) and restart the evaluation.
      */
     case CommitForResourceFailed(result) =>
-      val id = result.id
-      log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id FAILED for the RESOURCE => restart")
-      // the commit failed
-      // 2. restart
-      // The concurrency controller takes care of destroying tentative updates and
-      // marking the evaluations that used these attributes as to be restarted.
-      val original = id2original(id)
-      val updated = concurrencyController.restartForSubject(original)
-      // ask the other coordinator to restart as well. This coordinator will 
-      // start the actual evaluation (but the result will be sent to us)
-      coordinatorLocater.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
+      Tracer.trace(result.id, s"Coordinator#$coordinatorId", "CommitForResourceFailed") {
+        val id = result.id
+        log.debug(s"[Evaluation ${id}] The other coordinator sent that the commit for request $id FAILED for the RESOURCE => restart")
+        // the commit failed
+        // 2. restart
+        // The concurrency controller takes care of destroying tentative updates and
+        // marking the evaluations that used these attributes as to be restarted.
+        val original = id2original(id)
+        val updated = concurrencyController.restartForSubject(original)
+        // ask the other coordinator to restart as well. This coordinator will 
+        // start the actual evaluation (but the result will be sent to us)
+        coordinatorLocater.getCoordinatorForResource(original.resourceId) ! ManageResourceAndStartEvaluation(updated)
+      }
 
     /**
      * An update worker has finished an update.
@@ -426,6 +441,13 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
       // just forward this message to the concurrency controller (which is 
       // not an actor...)
       concurrencyController.updateFinished(updateWorker)
+
+    /**
+     * Someone requests a trace.
+     */
+    case TraceProtocol.GetTrace(evaluationId) =>
+      val trace = Tracer.getTraceOfEvaluation(evaluationId)
+      sender ! TraceProtocol.Trace(trace.steps.toList)
 
     /**
      * Just to be sure
