@@ -144,6 +144,9 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
           }
         } else {
           for (i <- 1 to nb) {
+            if(i % 1000 == 0) {
+              println(s"Run $i")
+            }
             sendRequest
           }
         }
@@ -167,7 +170,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
 
   val coordinatorCounter = new Counter("Different coordinators", 10000, false)
 
-  def sendRequest = {
+  def sendRequest(measure: Boolean = true) = {
     val request = em.randomRequest
     val coordinator = coordinators.getCoordinatorFor(request)
     timer.time {
@@ -196,25 +199,39 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
         }
       }
     }
-    stats ! EvaluationEnded(timer.last)
+    if (measure) {
+      stats ! EvaluationEnded(timer.last)
+    }
   }
 
   def receive = {
-    case Go(nb) => // launch a test of 100 messages 
+    case (nbWarmups: Int, nbRuns: Int) =>
+      // warmup requests
+      println(s"Doing $nbWarmups warmup requests")
       breakable {
-        if (nb == 0) {
+        for (i <- 1 to nbWarmups) {
+          sendRequest(false)
+        }
+      }
+
+      // measured requests
+      println(s"Doing $nbRuns requests")
+      breakable {
+        if (nbRuns == 0) {
           // infinte loop
           while (true) {
-            sendRequest
+            sendRequest()
           }
         } else {
-          for (i <- 1 to nb) {
-            sendRequest
+          for (i <- 1 to nbRuns) {
+            if(i % 1000 == 0) {
+              println(s"Run $i")
+            }
+            sendRequest()
           }
         }
       }
-      log.info(s"Client finished: $nb requests in ${timer.total} ms (mean: ${timer.mean} ms)")
-      stats ! PrintStats
+      log.info(s"Client finished: $nbRuns requests in ${timer.total} ms (mean: ${timer.mean} ms)")
     case msg => log.error(s"Received unknown message: $msg")
   }
 

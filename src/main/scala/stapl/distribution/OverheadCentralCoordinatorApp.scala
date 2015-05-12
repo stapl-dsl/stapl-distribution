@@ -40,13 +40,17 @@ import scala.concurrent.Await
 import stapl.distribution.components.ClientCoordinatorProtocol
 import stapl.distribution.db.MockAttributeDatabaseConnectionPool
 
-case class OverheadCentralCoordinatorConfig(nbRuns: Int = -1)
+case class OverheadCentralCoordinatorConfig(nbRuns: Int = -1, nbWarmups: Int = -1)
 
 object OverheadCentralCoordinatorApp extends App with Logging {
 
   val parser = new scopt.OptionParser[OverheadCentralCoordinatorConfig]("scopt") {
 
     head("Measure the overhead of the coordinator by running mock evaluations of 0 ms through the coordinator")
+
+    opt[Int]("nb-warmup-runs") required () action { (x, c) =>
+      c.copy(nbWarmups = x)
+    } text ("The number of runs to do.")
 
     opt[Int]("nb-runs") required () action { (x, c) =>
       c.copy(nbRuns = x)
@@ -59,7 +63,7 @@ object OverheadCentralCoordinatorApp extends App with Logging {
 
     val em = new EhealthEntityManager(true)
     //runDirectTest(em, config.nbRuns)
-    
+
     import EhealthPolicy._
     import ClientCoordinatorProtocol._
 
@@ -68,7 +72,7 @@ object OverheadCentralCoordinatorApp extends App with Logging {
     val coordinatorManager = system.actorOf(Props(classOf[FixedNumberCoordinatorsDistributedCoordinatorManager], 1), "distributed-coordinator-manager")
 
     val pool: AttributeDatabaseConnectionPool = new MockAttributeDatabaseConnectionPool
-    
+
     val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], naturalPolicy,
       1, 1, pool, coordinatorManager,
       false, false, -1, false, false, false, true /* mock evaluation */ , 0 /* 0 ms */ ), "coordinator")
@@ -76,19 +80,35 @@ object OverheadCentralCoordinatorApp extends App with Logging {
     implicit val timeout = Timeout(2.second)
     implicit val ec = system.dispatcher
 
-    val timer = new Timer("Through central coordinator")
+    // Warmups
+    println(s"Doing ${config.nbWarmups} warmup runs")
+    for (i <- 0 to config.nbWarmups) {
+      val request = em.randomRequest
+      val f = coordinator ? request
+      Await.ready(f, 180 seconds).value match {
+        case Some(Success(AuthorizationDecision(id, decision))) => // nothing to do
+        case x =>
+          throw new RuntimeException(s"WTF did I receive: $x")
+      }
+    }
+
+    // Runs
+    println(s"Doing ${config.nbRuns} runs")
+    val timer = new Timer
     for (i <- 0 to config.nbRuns) {
       val request = em.randomRequest
       timer time {
         val f = coordinator ? request
         Await.ready(f, 180 seconds).value match {
-          case Some(Success(AuthorizationDecision(id,decision))) => // nothing to do
-          case x => 
+          case Some(Success(AuthorizationDecision(id, decision))) => // nothing to do
+          case x =>
             throw new RuntimeException(s"WTF did I receive: $x")
         }
       }
     }
     println(f"Overhead of the central coordinator: mean = ${timer.mean}%2.2f ms, confInt = ${timer.confInt() * 100}%2.2f%%")
+    println("#! Results")
+    println(timer.toJSON())
 
     system.shutdown
   } getOrElse {
@@ -98,18 +118,19 @@ object OverheadCentralCoordinatorApp extends App with Logging {
   /**
    * 1. Call the PDP directly
    *
-  def runDirectTest(em: EhealthEntityManager, nbRuns: Int) = {
-    import EhealthPolicy._
-    val pdp = new PDP(naturalPolicy)
-    val timer = new Timer("Directly to PDP")
-    for (i <- 0 to nbRuns) {
-      val request = em.randomRequest
-      timer time {
-        pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
-      }
-    }
-    println(f"Directly to PDP: mean = ${timer.mean}%2.2f ms, confInt = ${timer.confInt() * 100}%2.2f")
-  }*/
+   * def runDirectTest(em: EhealthEntityManager, nbRuns: Int) = {
+   * import EhealthPolicy._
+   * val pdp = new PDP(naturalPolicy)
+   * val timer = new Timer("Directly to PDP")
+   * for (i <- 0 to nbRuns) {
+   * val request = em.randomRequest
+   * timer time {
+   * pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
+   * }
+   * }
+   * println(f"Directly to PDP: mean = ${timer.mean}%2.2f ms, confInt = ${timer.confInt() * 100}%2.2f")
+   * }
+   */
 
   def assert(wanted: Result, actual: Result)(implicit subject: Person, action: String, resource: stapl.distribution.db.entities.ehealth.Resource, extraAttributes: List[(stapl.core.Attribute, stapl.core.ConcreteValue)]) = {
     if (wanted.decision != actual.decision) {

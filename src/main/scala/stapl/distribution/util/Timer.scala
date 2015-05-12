@@ -86,10 +86,11 @@ class Timer(label: String = "unnamed-timer") {
   override def toString(): String = {
     return f"$label: nbruns = $count, mean = $mean%2.2f ms, confInt = ${confInt() * 100}%2.2f%%"
   }
-
-  def toJSON(): String = JsObject(
+  
+  def toJSON(nbSent: Int = -1) = JsObject(
     "label" -> JsString(label),
-    "nbruns" -> JsNumber(count),
+    "nbSent" -> JsNumber(nbSent),
+    "nbReceived" -> JsNumber(count),
     "mean" -> JsNumber(mean),
     "confInt" -> JsNumber(confInt()),
     "values" -> JsArray(timings.map(JsNumber(_)).toVector)).compactPrint
@@ -115,7 +116,8 @@ class Timer(label: String = "unnamed-timer") {
     // print the values
     val nbCharacters = 50
     val maxBin = bins.foldLeft(0)((a, b) => math.max(a, b))
-    val characterSize = (maxBin / nbCharacters).ceil
+    val characterSize = (maxBin.toDouble / nbCharacters.toDouble).ceil
+    println(s"characterSize = $characterSize")
     val intervalSize = f"[${(nbBins - 1) * binSize + min},${nbBins * binSize + min})".size
     val labelSize = s"${maxBin}".size
     for (i <- 0 until nbBins) {

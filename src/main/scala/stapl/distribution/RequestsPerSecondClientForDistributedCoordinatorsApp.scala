@@ -30,21 +30,25 @@ import stapl.distribution.db.entities.ehealth.EhealthEntityManager
 import stapl.distribution.db.entities.ArtificialEntityManager
 import org.slf4j.LoggerFactory
 import grizzled.slf4j.Logging
+import stapl.distribution.components.ClientCoordinatorProtocol
 import stapl.distribution.components.SimpleDistributedCoordinatorLocater
 import stapl.distribution.components.ClientRegistrationProtocol
 import stapl.distribution.components.DistributedCoordinatorConfigurationProtocol
 import stapl.distribution.util.LatencyStatisticsActor
+import stapl.distribution.components.ClientCoordinatorProtocol._
+import stapl.distribution.util.EvaluationEnded
+import akka.actor.Cancellable
+import stapl.distribution.util.ShutdownAndYouShouldHaveReceived
 
-case class SequentialClientForDistributedCoordinatorsConfig(
-  ip: String = "not-provided", port: Int = -1,
-  nbThreads: Int = -1, nbWarmups: Int = -1, nbRequests: Int = -1, policy: String = "not-provided",
+case class RequestsPerSecondClientForDistributedCoordinatorsConfig(
+  ip: String = "not-provided",
+  nbWarmups: Int = -1, nbRequestsPerSecond: Int = -1, nbSeconds: Int = -1,
   coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1,
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
-  statsInterval: Int = 2000,
   logLevel: String = "OFF", waitForGo: Boolean = false,
   nbCoordinators: Int = -1)
 
-object SequentialClientForDistributedCoordinatorsApp {
+object RequestsPerSecondClientForDistributedCoordinatorsApp {
   def main(args: Array[String]) {
 
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
@@ -54,16 +58,12 @@ object SequentialClientForDistributedCoordinatorsApp {
     val ehealthEM = stapl.distribution.db.entities.ehealth.EhealthEntityManager()
     val concEM = stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager()
 
-    val parser = new scopt.OptionParser[SequentialClientForDistributedCoordinatorsConfig]("scopt") {
+    val parser = new scopt.OptionParser[RequestsPerSecondClientForDistributedCoordinatorsConfig]("scopt") {
       head("STAPL - coordinator")
 
       opt[String]("ip") required () action { (x, c) =>
         c.copy(ip = x)
-      } text ("The hostname of the machine on which this client is run. This hostname will be used by other actors in their callbacks, so it should be externally accessible if you deploy the components on different machines.")
-
-      opt[Int]("port") required () action { (x, c) =>
-        c.copy(port = x)
-      } text ("The port on which this client will be listening. 0 for a random port")
+      } text ("The IP address of the machine on which this client is run. This address will be used by other actors in their callbacks, so it should be externally accessible if you deploy the components on different machines.")
 
       opt[String]("coordinator-manager-ip") action { (x, c) =>
         c.copy(coordinatorManagerIP = x)
@@ -73,17 +73,17 @@ object SequentialClientForDistributedCoordinatorsApp {
         c.copy(coordinatorManagerPort = x)
       } text ("The port of the coordinator manager in the cluster.")
 
-      opt[Int]("nb-threads") required () action { (x, c) =>
-        c.copy(nbThreads = x)
-      } text ("The number of parallel client threads to start.")
-
-      opt[Int]("nb-warmup-runs") required () action { (x, c) =>
+      opt[Int]("nb-warmup-requests") required () action { (x, c) =>
         c.copy(nbWarmups = x)
       } text ("The number of sequential warmup requests that each client should send.")
 
-      opt[Int]("nb-runs") required () action { (x, c) =>
-        c.copy(nbRequests = x)
-      } text ("The number of sequential requests that each client should send. 0 for infinite.")
+      opt[Int]("nb-requests-per-second") required () action { (x, c) =>
+        c.copy(nbRequestsPerSecond = x)
+      } text ("The number of requests per second to send to the coordinators. FOR BEST RESULTS, MAKE THIS A CLEAN NUMBER COMPARED TO 1000, such as 100, 200, 500, 1000, 2000 etc.")
+
+      opt[Int]("nb-seconds") required () action { (x, c) =>
+        c.copy(nbSeconds = x)
+      } text ("The number of seconds to continue the test.")
 
       opt[Int]("nb-coordinators") required () action { (x, c) =>
         c.copy(nbCoordinators = x)
@@ -114,20 +114,16 @@ object SequentialClientForDistributedCoordinatorsApp {
         c.copy(waitForGo = true)
       } text ("Flag to indicate that the client should wait for user input to start generating load.")
 
-      opt[Int]("stats-interval") action { (x, c) =>
-        c.copy(statsInterval = x)
-      } text ("The interval on which to report stats, in number of requests. Default: 2000.")
-
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
-    parser.parse(args, SequentialClientForDistributedCoordinatorsConfig()) map { config =>
+    parser.parse(args, RequestsPerSecondClientForDistributedCoordinatorsConfig()) map { config =>
       import DistributedCoordinatorConfigurationProtocol._
 
       val defaultConf = ConfigFactory.load()
       val customConf = ConfigFactory.parseString(s"""
         akka.remote.netty.tcp.hostname = ${config.ip}
-        akka.remote.netty.tcp.port = ${config.port}
+        akka.remote.netty.tcp.port = 0
         akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("STAPL-client", customConf)
@@ -170,17 +166,54 @@ object SequentialClientForDistributedCoordinatorsApp {
       //        case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       //      }
       //val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor], "Sequential clients", 0 /* no periodical output */, 10, false))
-      val stats = system.actorOf(Props(classOf[LatencyStatisticsActor], "Sequential clients", config.nbThreads * config.nbRequests))
-      val clients = system.actorOf(BroadcastPool(config.nbThreads).props(Props(classOf[SequentialClientForCoordinatorGroup], coordinatorLocater, em, stats)), "clients")
+      val stats = system.actorOf(Props(classOf[LatencyStatisticsActor], "RequestsPerSecond client", -1))
 
-      println(s"Started ${config.nbThreads} sequential client threads that each will make ${config.nbWarmups} warmup requests and ${config.nbRequests} requests to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      // NOW TRY TO SCHEDULE THE REQUIRED NUMBER OF REQUESTS PER SECOND AS EVENLY AS POSSIBLE
+      // DURING EACH SECOND AND KEEP IT UP FOR *AT LEAST* THE REQUESTED NUMBER OF SECONDS
+      // Strategy: send messages at most once every 100 ms, but send more than 1 if needed
+      val nbRequestsPerInterval = config.nbRequestsPerSecond / 10
 
+      println(s"Sending ${config.nbWarmups} warmup requests followed by ${config.nbRequestsPerSecond} requests per second for ${config.nbSeconds} seconds to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")
       if (config.waitForGo) {
         println("Press any key to start generating load")
         Console.readLine()
       }
-      import components.ClientProtocol._
-      clients ! (config.nbWarmups, config.nbRequests)
+
+      // warmup
+      for (i <- 1 to config.nbWarmups) {
+        val request = em.randomRequest
+        val coordinator = coordinatorLocater.getCoordinatorFor(request)
+        val f = coordinator ? request
+        Await.result(f, 180 seconds) match {
+          case x => // nothing to do
+        }
+      }
+      
+      var nbSent = 0
+
+      // actual requests
+      val cancellable = system.scheduler.schedule(0 millisecond, 100 milliseconds) {
+        for (i <- 1 to nbRequestsPerInterval) {
+          val request = em.randomRequest
+          val coordinator = coordinatorLocater.getCoordinatorFor(request)
+          val sentAt = System.nanoTime()
+          val f = coordinator ? request
+          f onSuccess {
+            case AuthorizationDecision(id, decision) =>
+              val now = System.nanoTime()
+              stats ! EvaluationEnded((now - sentAt).toDouble / 1000000.0)
+            case x =>
+              throw new RuntimeException(s"No idea what I received here: $x")
+          }
+          nbSent += 1
+        }
+      }
+
+      //system.scheduler.scheduleOnce(1 seconds) {
+      system.scheduler.scheduleOnce((config.nbSeconds + 1) seconds) {
+        cancellable.cancel
+        stats ! ShutdownAndYouShouldHaveReceived(nbSent)
+      }
     } getOrElse {
       // arguments are bad, error message will have been displayed
     }
