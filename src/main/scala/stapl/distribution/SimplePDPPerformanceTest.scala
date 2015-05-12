@@ -25,7 +25,7 @@ import stapl.distribution.db.HardcodedEnvironmentAttributeFinderModule
 import stapl.distribution.db.entities.EntityManager
 
 case class SimplePDPPerformanceTestConfig(databaseIP: String = "not-provided", databasePort: Int = -1,
-  nbRuns: Int = -1)
+  nbWarmups: Int = -1, nbRuns: Int = -1)
 
 object SimplePDPPerformanceTest extends App with Logging {
 
@@ -41,6 +41,10 @@ object SimplePDPPerformanceTest extends App with Logging {
       c.copy(databasePort = x)
     } text ("The port on which the database containing the attributes is listening.")
 
+    opt[Int]("nb-warmup-runs") required () action { (x, c) =>
+      c.copy(nbWarmups = x)
+    } text ("The number of warmup runs to do for each request.")
+
     opt[Int]("nb-runs") required () action { (x, c) =>
       c.copy(nbRuns = x)
     } text ("The number of runs to do for each request.")
@@ -50,8 +54,8 @@ object SimplePDPPerformanceTest extends App with Logging {
   // parser.parse returns Option[C]
   parser.parse(args, SimplePDPPerformanceTestConfig()) map { config =>
     import EhealthPolicy._
-    //val em = new EhealthEntityManager
-    val em = new EhealthEntityManager(true)
+    val em = new EhealthEntityManager
+    //val em = new EhealthEntityManager(true)
 
     val pool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
 
@@ -61,12 +65,23 @@ object SimplePDPPerformanceTest extends App with Logging {
     attributeFinder += new HardcodedEnvironmentAttributeFinderModule
     val pdp = new PDP(naturalPolicy, attributeFinder)
 
+    // do the warmup
+    println(s"Doing ${config.nbWarmups} warmup runs")
+    for (i <- 0 to config.nbWarmups) {
+      for ((request, shouldBe) <- em.requests) {
+        implicit val (subject, action, resource, extraAttributes) = request
+        val r = pdp.evaluate(subject.id, action, resource.id, extraAttributes: _*)
+        assert(shouldBe, r)
+      }
+    }
+
     // do the tests: iterate over the different requests in order to avoid JVM optimizations
+    println(s"Doing ${config.nbRuns} runs")
     val timers = em.requests.map(x => {
       val (subject, action, resource, extraAttributes) = x._1
       (x._1, new Timer(s"Request (${subject.id},$action,${resource.id},$extraAttributes)"))
     }).toMap
-    for (i <- 0 to config.nbRuns) {
+    for (i <- 1 to config.nbRuns) {
       println(s"Run #$i/${config.nbRuns}")
       for ((request, shouldBe) <- em.requests) {
         implicit val (subject, action, resource, extraAttributes) = request
@@ -77,7 +92,7 @@ object SimplePDPPerformanceTest extends App with Logging {
         assert(shouldBe, r)
       }
     }
-    println(f"# Average over all requests = ${timers.values.map(_.mean).foldLeft(0.0)((a,b) => a + b) / timers.size.toDouble}%2.2f ms")
+    println(f"# Average over all requests = ${timers.values.map(_.mean).foldLeft(0.0)((a, b) => a + b) / timers.size.toDouble}%2.2f ms")
     println("#! Results")
     timers.values.foreach(x => println(x.toJSON()))
   } getOrElse {

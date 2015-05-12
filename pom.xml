@@ -55,7 +55,8 @@
 			<version>2.3.10</version>
 		</dependency>
 		<dependency>
-			<groupId>com.typesafe.akka-by-maarten</groupId>
+			<groupId>com.typesafe.akka</groupId>
+<!-- 			<groupId>com.typesafe.akka-by-maarten</groupId> -->
 			<artifactId>akka-remote_2.10</artifactId>
 			<version>2.3.10</version>
 		</dependency>

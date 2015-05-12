@@ -26,7 +26,6 @@ import stapl.distribution.components.FixedNumberCoordinatorsDistributedCoordinat
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import grizzled.slf4j.Logging
-import stapl.distribution.util.StatisticsActor
 import stapl.distribution.components.InitialPeakClientForCoordinatorGroup
 import stapl.distribution.util.Timer
 import akka.pattern.ask

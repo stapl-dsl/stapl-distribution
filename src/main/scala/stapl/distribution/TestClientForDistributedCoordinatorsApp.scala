@@ -21,7 +21,6 @@ import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
 import akka.pattern.ask
 import stapl.distribution.components.TestClientForCoordinatorGroup
-import stapl.distribution.util.StatisticsActor
 import org.slf4j.LoggerFactory
 import grizzled.slf4j.Logging
 import stapl.distribution.db.entities.ehealth.EhealthEntityManager
