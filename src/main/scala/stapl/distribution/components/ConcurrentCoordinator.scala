@@ -41,6 +41,7 @@ import scala.concurrent.duration._
 import scala.util.{ Try, Success, Failure }
 import stapl.core.ConcreteChangeAttributeObligationAction
 import stapl.core.ConcreteObligationAction
+import scala.util.Random
 
 /**
  * Class used for communication with foremen.
@@ -165,6 +166,110 @@ case object BOTH extends Managed
 case object NOTHING extends Managed
 
 /**
+ *
+ */
+trait AbstractConcurrentConcurrencyController {
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to start and that this controller should do
+   * the administration for the SUBJECT and the RESOURCE of the request.
+   *
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to the committed in the database yet.
+   */
+  def startForBoth(request: PolicyEvaluationRequest): PolicyEvaluationRequest
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to start and that this controller should do
+   * the administration for the subject of the request.
+   *
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to the committed in the database yet.
+   */
+  def startForSubject(request: PolicyEvaluationRequest): PolicyEvaluationRequest
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to start and that this controller should do
+   * the administration for the subject of the request.
+   *
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to bhe committed in the database yet.
+   */
+  def startForResource(request: PolicyEvaluationRequest): PolicyEvaluationRequest
+
+  /**
+   * Called by a coordinator that manages BOTH the resource and the subject.
+   *
+   * Tries to commit the evaluation of which the result is given and
+   * returns whether the commit has succeeded or not. This commit will
+   * succeed if there are no conflicting attribute reads and/or writes.
+   *
+   * This method also updates the internal state according to the success
+   * or failure of the commit (in the latter case: remove the evaluation from
+   * the administration).
+   *
+   * If this method returns true, the attribute updates of the evaluation
+   * are not yet processed but *will* be processed and will be processed
+   * *correctly* so that you can assume that the evaluation is committed.
+   */
+  def commitForBoth(result: PolicyEvaluationResult): Boolean
+
+  /**
+   * Called by a coordinator that manages only the SUBJECT. The attribute
+   * updates in this result should be executed TENTATIVELY.
+   */
+  def commitForSubject(result: PolicyEvaluationResult): Boolean
+
+  /**
+   * Called by a coordinator that manages only the RESOURCE. The attribute
+   * updates in this result can be executed IMMEDIATELY.
+   */
+  def commitForResource(result: PolicyEvaluationResult): Boolean
+
+  /**
+   * This method is called by the coordinator managing the SUBJECT
+   * when the other coordinator has indicated that it is ok to commit.
+   */
+  def finalizeCommitForSubject(evaluationId: String)
+
+  /**
+   * This method is called by the coordinator managing the SUBJECT
+   * when the other coordinator has indicated that he failed to commit for the
+   * resource, so we should restart the evaluation. This method resets the
+   * list of updates while evaluating the request and returns the given request
+   * with the appropriate attributes added (see startFor...()).
+   */
+  def restartForSubject(request: PolicyEvaluationRequest): PolicyEvaluationRequest
+
+  /**
+   * Indicates to the controller that the evaluation of the given
+   * request is going to restart and that this controller should do
+   * the administration for the subject of the request. First, we clean
+   * up the administration that we already had for this request.
+   *
+   * This method adds the original request with the appropriate
+   * attributes added. These attributes are attributes that are
+   * currently being updated as the result of previous policy evaluations
+   * but are not sure to be committed in the database yet.
+   */
+  def restartForResource(request: PolicyEvaluationRequest): PolicyEvaluationRequest
+
+  /**
+   * Indicates to the controller that an UpdateWorker has finished an update.
+   */
+  def updateFinished(updateWorker: ActorRef): Unit
+}
+
+/**
  * Class used for concurrency control.
  *
  * Strategy: for each ongoing request we maintain the relevant attributes
@@ -178,7 +283,8 @@ case object NOTHING extends Managed
  * These are the attributes that have been written by another evaluation while ongoing
  * and apply to the subject or the resource of the evaluation.
  */
-class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef], log: LoggingAdapter) {
+class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List[ActorRef], log: LoggingAdapter)
+  extends AbstractConcurrentConcurrencyController {
 
   import scala.collection.mutable.Map
 
@@ -607,19 +713,19 @@ class ConcurrentConcurrencyController(coordinator: ActorRef, updateWorkers: List
 /**
  * A coordinator that can collaborate with other coordinators. This ConcurrentCoordinator
  * is developed in order to be able to set up a number concurrent coordinators (the number
- * depends on the expected load) that work with the same set of Foremen. There are two 
- * differences with the DistributedCoordinator: 
+ * depends on the expected load) that work with the same set of Foremen. There are two
+ * differences with the DistributedCoordinator:
  * 1. Each DistributedCoordinator manages its own workers, i.e., there is no shared pool of
- * 	  workers or foremen. 
- * 2. As a result of 1., the DistributedCoordinator also manages its own workers, i.e., 
+ * 	  workers or foremen.
+ * 2. As a result of 1., the DistributedCoordinator also manages its own workers, i.e.,
  *    does not employ a Foreman.
- * 
+ *
  * This class was developed in order to be able to scale out the coordination on a single node
  * so that a single coordinator could manage multiple other nodes that each host a Foreman with
  * multiple workers. However, work on this class has shifted to the DistributedCoordinator, which
- * manages its own workers (and therefore is a simpler set-up) and can be scaled out as well by 
- * just starting up multiple DistributedCoordinators on the same node.  
- * 
+ * manages its own workers (and therefore is a simpler set-up) and can be scaled out as well by
+ * just starting up multiple DistributedCoordinators on the same node.
+ *
  * FIXME: This class is INCOMPLETE for now. It should not be hard to unify this code with
  * the code of the DistributedCoordinator: a Worker and the ForemanManager should just have
  * the same interface/behave the same. IN ANY CASE, USE THE CODE OF THE DISTRIBUTEDCOORDINATOR,
@@ -909,4 +1015,73 @@ class ConcurrentCoordinator(coordinatorId: Long, pool: AttributeDatabaseConnecti
   }
 
   log.debug(s"$self: I'm alive!")
+}
+
+/**
+ * A mock concurrency controller that can be configured with a certain change
+ * of conflict (i.e., failing commit).
+ */
+class MockConcurrentConcurrencyController(chanceOfConflict: Double) extends AbstractConcurrentConcurrencyController {
+
+  if (chanceOfConflict < 0 || chanceOfConflict > 1) {
+    throw new IllegalArgumentException(s"The chance of conflict has to lie in the interval [0,1]. Given value: $chanceOfConflict")
+  }
+
+  val random = new Random()
+
+  /**
+   *
+   */
+  def startForBoth(request: PolicyEvaluationRequest) = request
+
+  /**
+   *
+   */
+  def startForSubject(request: PolicyEvaluationRequest) = request
+
+  /**
+   *
+   */
+  def startForResource(request: PolicyEvaluationRequest) = request
+
+  /**
+   *
+   */
+  def commitForBoth(result: PolicyEvaluationResult) = randomCommit
+
+  /**
+   * 
+   */
+  def commitForSubject(result: PolicyEvaluationResult) = randomCommit
+
+  /**
+   * 
+   */
+  def commitForResource(result: PolicyEvaluationResult) = randomCommit
+
+  private def randomCommit = if (random.nextDouble <= chanceOfConflict) {
+    false
+  } else {
+    true
+  }
+
+  /**
+   * 
+   */
+  def finalizeCommitForSubject(evaluationId: String) = {}
+
+  /**
+   * 
+   */
+  def restartForSubject(request: PolicyEvaluationRequest) = request
+
+  /**
+   * 
+   */
+  def restartForResource(request: PolicyEvaluationRequest) = request
+
+  /**
+   * 
+   */
+  def updateFinished(updateWorker: ActorRef) = {}
 }

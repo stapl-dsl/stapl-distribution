@@ -42,7 +42,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
   enableStatsIn: Boolean = false, enableStatsOut: Boolean = false, statsOutInterval: Int = 2000,
   enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
   mockDecision: Boolean = false, mockEvaluation: Boolean = false,
-  mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
+  mockEvaluationDuration: Int = 0, mockChanceOfConflict: Double = -1) extends Actor with ActorLogging {
 
   import ClientCoordinatorProtocol._
   import ConcurrentCoordinatorProtocol._
@@ -133,7 +133,13 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
    * *********************************
    * Our ConcurrencyController
    */
-  private val concurrencyController = new ConcurrentConcurrencyController(self, updateWorkers.toList, log)
+  private val concurrencyController = if(mockChanceOfConflict >= 0 && mockChanceOfConflict <= 1) {
+    log.info(f"Using a MockConcurrecyController with chance of conflict = ${mockChanceOfConflict*100}%2.2f%%")
+    new MockConcurrentConcurrencyController(mockChanceOfConflict)
+  } else {
+    log.debug("Using a normal concurrency controller (not a MockConcurrencyController).")
+    new ConcurrentConcurrencyController(self, updateWorkers.toList, log)
+  }
 
   /**
    * A mapping of id -> original request for restarting requests efficiently.

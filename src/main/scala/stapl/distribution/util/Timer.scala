@@ -117,7 +117,6 @@ class Timer(label: String = "unnamed-timer") {
     val nbCharacters = 50
     val maxBin = bins.foldLeft(0)((a, b) => math.max(a, b))
     val characterSize = (maxBin.toDouble / nbCharacters.toDouble).ceil
-    println(s"characterSize = $characterSize")
     val intervalSize = f"[${(nbBins - 1) * binSize + min},${nbBins * binSize + min})".size
     val labelSize = s"${maxBin}".size
     for (i <- 0 until nbBins) {

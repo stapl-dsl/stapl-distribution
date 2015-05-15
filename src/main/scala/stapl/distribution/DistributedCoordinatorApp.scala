@@ -37,7 +37,7 @@ case class DistributedCoordinatorConfig(hostname: String = "not-provided", ip: S
   logLevel: String = "INFO", enableStatsIn: Boolean = false, enableStatsOut: Boolean = false,
   statsOutInterval: Int = 2000, enableStatsWorkers: Boolean = false, enableStatsDb: Boolean = false,
   mockDecision: Boolean = false, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0,
-  enableTracing: Boolean = false)
+  enableTracing: Boolean = false, mockChanceOfConflict: Double = -1)
 
 object DistributedCoordinatorApp {
 
@@ -147,6 +147,12 @@ object DistributedCoordinatorApp {
         c.copy(mockEvaluationDuration = x)
       } text ("The duration of a mock evaluation in ms. Default: 0ms. Only used when --mock-evaluation-duration is set.")
 
+      opt[Double]("mock-chance-of-conflict") action { (x, c) =>
+        c.copy(mockChanceOfConflict = x)
+      } validate { x =>
+        if (x >= 0 && x <= 1) success else failure(s"The mock chance of conflict should be a floating point value in the interval [0,1].")
+      } text ("Set to a value [0,1] to disable normal conflict detection and enable an artificial chance of conflict.")
+
       opt[Unit]("enable-tracing") action { (x, c) =>
         c.copy(enableTracing = true)
       } text (s"Flag to indicate that the coordinator should keep traces of evaluations.")
@@ -211,12 +217,12 @@ object DistributedCoordinatorApp {
       val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], policies(config.policy),
         config.nbWorkers, config.nbUpdateWorkers, pool, coordinatorManager,
         config.enableStatsIn, config.enableStatsOut, config.statsOutInterval, config.enableStatsWorkers, config.enableStatsDb,
-        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration), "coordinator")
+        config.mockDecision, config.mockEvaluation, config.mockEvaluationDuration, config.mockChanceOfConflict), "coordinator")
 
       // enable tracing if requested
-        if(config.enableTracing) {
-          Tracer.enable()
-        }
+      if (config.enableTracing) {
+        Tracer.enable()
+      }
 
       //      // listen for garbage collection
       //      new Thread(new Runnable {
