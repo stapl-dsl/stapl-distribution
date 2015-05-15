@@ -116,7 +116,7 @@ object InitialPeakClientForDistributedCoordinatorsApp {
       val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system) // TODO remove the Hazelcast implementation here
       ???
       val em = config.requestPool match {
-        case "ehealth" => EhealthEntityManager()
+        case "ehealth" => EhealthEntityManager(true)
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
       val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor], "Initial peak client", config.statsInterval, 10, false))

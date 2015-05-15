@@ -122,7 +122,7 @@ object TestClientForDistributedCoordinatorsApp extends Logging {
       }
 
       val em = config.requestPool match {
-        case "ehealth" => EhealthEntityManager()
+        case "ehealth" => EhealthEntityManager(true)
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
       // tactic: run two peak clients in parallel that each handle half of the peaks

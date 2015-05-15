@@ -69,7 +69,7 @@ object OverheadRemoteCommunicationTestSenderApp {
       implicit val timeout = Timeout(5.second)
       val receiver = Await.result(selection.resolveOne(3.seconds), 5.seconds)
 
-      val em = EhealthEntityManager()
+      val em = EhealthEntityManager(true)
 
       val timer = new Timer("remoting-overhead")
 
