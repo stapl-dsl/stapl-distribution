@@ -27,7 +27,7 @@ import stapl.distribution.db.entities.ArtificialEntityManager
 
 case class InitialPeakClientForDistributedCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1, coordinatorIP: String = "not-provided",
-  nbRequests: Int = -1, 
+  nbWarmups: Int = -1, nbRequests: Int = -1, 
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
   logLevel: String = "INFO", waitForGo: Boolean = false,
   statsInterval: Int = 2000)
@@ -57,6 +57,10 @@ object InitialPeakClientForDistributedCoordinatorsApp {
       opt[String]("coordinator-ip") required () action { (x, c) =>
         c.copy(coordinatorIP = x)
       } text ("The ip address of the machine on which one of the distributed coordinators is running.")
+
+      opt[Int]("nb-warmups") required () action { (x, c) =>
+        c.copy(nbWarmups = x)
+      } text ("The number of warmup requests to send to the coordinator.")
 
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
@@ -109,15 +113,16 @@ object InitialPeakClientForDistributedCoordinatorsApp {
       cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.coordinatorIP)
       val hazelcast = Hazelcast.newHazelcastInstance(cfg)
 
-      val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system)
+      val coordinators = new HazelcastDistributedCoordinatorLocater(hazelcast, system) // TODO remove the Hazelcast implementation here
+      ???
       val em = config.requestPool match {
         case "ehealth" => EhealthEntityManager()
         case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
       }
-      val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor], "Initial peak client", config.statsInterval, 10))
+      val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor], "Initial peak client", config.statsInterval, 10, false))
       
-      val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinators, config.nbRequests, em, stats), "client")
-      println(s"InitialPeak client started at ${config.hostname}:${config.port} doint ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      val client = system.actorOf(Props(classOf[InitialPeakClientForCoordinatorGroup], coordinators, config.nbWarmups, config.nbRequests, em, stats), "client")
+      println(s"InitialPeak client started at ${config.hostname}:${config.port} doing ${config.nbWarmups} warmups requests and ${config.nbRequests} requests to a group of ${coordinators.coordinators.size} coordinators (log-level: ${config.logLevel})")
       if(config.waitForGo) {
         println("Press any key to start generating load")
         Console.readLine()

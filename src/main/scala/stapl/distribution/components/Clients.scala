@@ -268,7 +268,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int,
   log.info(s"Intial peak client created: $this")
 }
 
-class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: Int,
+class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nbWarmups: Int, nb: Int,
   em: EntityManager, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
@@ -278,6 +278,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
   implicit val ec = context.dispatcher
 
   val timer = new Timer
+  var waitingForWarmups = nbWarmups
   var waitingFor = nb
 
   // the sender that we will notify when the peak has been processed
@@ -286,6 +287,12 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
   def receive = {
     case "go" =>
       s = sender
+      for (i <- 1 to nbWarmups) {
+        val request = em.randomRequest
+        val coordinator = coordinators.getCoordinatorFor(request)
+        coordinator ! request
+      }
+    case "go-after-warmup" =>
       timer.start
       for (i <- 1 to nb) {
         val request = em.randomRequest
@@ -293,13 +300,21 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
         coordinator ! request
       }
     case AuthorizationDecision(id, decision) =>
-      waitingFor -= 1
-      stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
-      log.debug(s"Waiting for: $waitingFor")
-      if (waitingFor == 0) {
-        timer.stop()
-        log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms => average of ${nb.toDouble / timer.duration * 1000}%2.0f evaluations / sec")
-        s ! "done"
+      if (waitingForWarmups > 0) {
+        // we are still in the warmup phase
+        waitingForWarmups -= 1
+        if(waitingForWarmups == 0) {
+          self ! "go-after-warmup"
+        }
+      } else {
+        waitingFor -= 1
+        stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
+        log.debug(s"Waiting for: $waitingFor")
+        if (waitingFor == 0) {
+          timer.stop()
+          log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms => average of ${nb.toDouble / timer.duration * 1000}%2.0f evaluations / sec")
+          s ! "done"
+        }
       }
     case x => log.error(s"Received unknown message: $x")
   }
@@ -340,7 +355,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
         if (warmupPeaksToDo > 0) {
           // we're still in warmup
           warmupPeaksToDo -= 1
-          if(warmupPeaksToDo == 0) {
+          if (warmupPeaksToDo == 0) {
             println("End of warm-up phase")
             timer.stop
             timer.reset
