@@ -20,6 +20,8 @@ class Timer(label: String = "unnamed-timer") {
   // timings in milliseconds
   val timings = ListBuffer[Double]()
   var last = -1.0
+  var whenFirstReceived = -1L
+  var whenLastReceived = -1L
 
   var t0 = 0L
   var t1 = 0L
@@ -27,10 +29,19 @@ class Timer(label: String = "unnamed-timer") {
   def start() = t0 = System.nanoTime()
   def stop() = {
     t1 = System.nanoTime()
+    this += (t1.toDouble - t0.toDouble) / 1000000.0
+  }
+  
+  def +=(duration: Double) = {
     last = duration
     timings += last
+    // log the time of the first and the last received message 
+    val now = System.nanoTime()
+    if (whenFirstReceived == -1) {
+      whenFirstReceived = now
+    }
+    whenLastReceived = now
   }
-  def duration() = (t1.toDouble - t0.toDouble) / 1000000.0
 
   def time[R](block: => R): R = {
     start
@@ -78,22 +89,41 @@ class Timer(label: String = "unnamed-timer") {
     val confIntervalSizeAbs = confIntervalHigh - confIntervalLow
     confIntervalSizeAbs / mean
   }
+  
+  /**
+   * Returns the number of seconds we have been receiving measurements
+   * based on the time when the first and the last
+   * measurements were received and the number of measurements received.
+   */
+  def secondsReceiving(): Double = (whenLastReceived - whenFirstReceived).toDouble / 1000.0 / 1000.0 / 1000.0
+
+  /**
+   * Returns the average throughput of received measurements in
+   * requests / second based on the time when the first and the last
+   * measurements were received and the number of measurements received.
+   */
+  def throughput(): Double = count.toDouble / secondsReceiving
 
   def reset = {
     timings.clear
+    last = -1.0
+    whenFirstReceived = -1L
+    whenLastReceived = -1L
   }
 
   override def toString(): String = {
     return f"$label: nbruns = $count, mean = $mean%2.2f ms, confInt = ${confInt() * 100}%2.2f%%"
   }
-  
+
   def toJSON(nbSent: Int = -1) = JsObject(
     "label" -> JsString(label),
     "nbSent" -> JsNumber(nbSent),
     "nbReceived" -> JsNumber(count),
     "mean" -> JsNumber(mean),
-    "confInt" -> JsNumber(confInt())/*,
-    "values" -> JsArray(timings.map(JsNumber(_)).toVector)*/).compactPrint
+    "confInt" -> JsNumber(confInt()),
+    "secondsReceiving" -> JsNumber(secondsReceiving),
+    "throughput" -> JsNumber(throughput) /*,
+    "values" -> JsArray(timings.map(JsNumber(_)).toVector)*/ ).compactPrint
 
   def printAllMeasurements() = {
     timings.foreach(println(_))

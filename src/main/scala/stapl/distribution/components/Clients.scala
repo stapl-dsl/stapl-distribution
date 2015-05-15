@@ -260,7 +260,7 @@ class InitialPeakClient(coordinator: ActorRef, nb: Int,
       waitingFor -= 1
       if (waitingFor == 0) {
         timer.stop()
-        log.info(s"Total duration of an initial peak of $nb requests = ${timer.duration}")
+        log.info(s"Total duration of an initial peak of $nb requests = ${timer.last}")
       }
     case x => log.error(s"Received unknown message: $x")
   }
@@ -312,7 +312,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nbWar
         log.debug(s"Waiting for: $waitingFor")
         if (waitingFor == 0) {
           timer.stop()
-          log.info(f"Total duration of an initial peak of $nb requests = ${timer.duration}%2.0f ms => average of ${nb.toDouble / timer.duration * 1000}%2.0f evaluations / sec")
+          log.info(f"Total duration of an initial peak of $nb requests = ${timer.last}%2.0f ms => average of ${nb.toDouble / timer.last * 1000}%2.0f evaluations / sec")
           s ! "done"
         }
       }
@@ -363,7 +363,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
           self ! "go"
         } else {
           timer.stop()
-          log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")
+          log.info(s"Total duration of a peak of $nbRequests requests = ${timer.last}")
           peaksToDo -= 1
           // start another peak if we need to
           if (peaksToDo > 0) {
