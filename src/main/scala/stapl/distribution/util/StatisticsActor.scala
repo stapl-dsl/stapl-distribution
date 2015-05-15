@@ -34,6 +34,7 @@ class LatencyStatisticsActor(name: String, printAfterNbRequests: Int = -1) exten
     }
 
     case ShutdownAndYouShouldHaveReceived(nb) => {
+      println("#! Results")
       println(stats.toJSON(nb))
       context.system.shutdown
     }
