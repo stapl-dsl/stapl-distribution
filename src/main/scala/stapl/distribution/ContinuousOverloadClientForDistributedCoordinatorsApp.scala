@@ -34,7 +34,7 @@ import stapl.distribution.components.ClientRegistrationProtocol
 case class ContinuousOverloadClientForDistributedCoordinatorConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   coordinatorManagerIP: String = "not-provided", coordinatorManagerPort: Int = -1,
-  nbRequests: Int = -1, nbPeaks: Int = -1,
+  nbRequests: Int = -1, nbWarmupPeaks: Int = -1, nbPeaks: Int = -1,
   requestPool: String = "ehealth", nbArtificialSubjects: Int = -1, nbArtificialResources: Int = -1,
   statsInterval: Int = 2000, logLevel: String = "INFO", waitForGo: Boolean = false)
 
@@ -71,6 +71,10 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       opt[Int]("nb-requests") required () action { (x, c) =>
         c.copy(nbRequests = x)
       } text ("The number of requests to send to the coordinator for each peak.")
+      
+      opt[Int]("nb-warmup-peaks") required () action { (x, c) =>
+        c.copy(nbWarmupPeaks = x)
+      } text ("The number of warmup requests to send to the coordinator before starting the peaks.")
       
       opt[Int]("nb-peaks") required () action { (x, c) =>
         c.copy(nbPeaks = x)
@@ -149,10 +153,10 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
-      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbPeaks / 2, stats), "client1")
-      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
+      val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbWarmupPeaks, config.nbPeaks / 2, stats), "client1")
+      val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbWarmupPeaks, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
             
-      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinatorLocater.coordinators.size} coordinators (log-level: ${config.logLevel})")
+      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinatorLocater.coordinators.size} coordinators after ${config.nbWarmupPeaks} warmup requests (log-level: ${config.logLevel})")
       if(config.waitForGo) {
         println("Press any key to start generating load")
         Console.readLine()

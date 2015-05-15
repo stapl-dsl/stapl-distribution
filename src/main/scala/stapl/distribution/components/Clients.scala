@@ -144,7 +144,7 @@ class SequentialClientForConcurrentCoordinators(coordinators: RemoteConcurrentCo
           }
         } else {
           for (i <- 1 to nb) {
-            if(i % 1000 == 0) {
+            if (i % 1000 == 0) {
               println(s"Run $i")
             }
             sendRequest
@@ -224,7 +224,7 @@ class SequentialClientForCoordinatorGroup(coordinators: CoordinatorGroup,
           }
         } else {
           for (i <- 1 to nbRuns) {
-            if(i % 1000 == 0) {
+            if (i % 1000 == 0) {
               println(s"Run $i")
             }
             sendRequest()
@@ -308,7 +308,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nb: I
 }
 
 class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup,
-  em: EntityManager, nbRequests: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
+  em: EntityManager, nbRequests: Int, nbWarmupPeaks: Int, nbPeaks: Int, stats: ActorRef) extends Actor with ActorLogging {
 
   import ClientProtocol._
   import ClientCoordinatorProtocol._
@@ -317,6 +317,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
 
   val timer = new Timer
   var waitingFor = nbRequests
+  var warmupPeaksToDo = nbWarmupPeaks
   var peaksToDo = if (nbPeaks == 0) Double.PositiveInfinity else nbPeaks
 
   val coordinatorCounter = new Counter("Different coordinators", 10000, false)
@@ -336,15 +337,26 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
       stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
       log.debug(s"$waitingFor")
       if (waitingFor == 0) {
-        timer.stop()
-        log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")
-        peaksToDo -= 1
-        // start another peak if we need to
-        if (peaksToDo > 0) {
-          log.debug("Starting the next peak")
+        if (warmupPeaksToDo > 0) {
+          // we're still in warmup
+          warmupPeaksToDo -= 1
+          if(warmupPeaksToDo == 0) {
+            println("End of warm-up phase")
+            timer.stop
+            timer.reset
+          }
           self ! "go"
         } else {
-          log.debug("Done")
+          timer.stop()
+          log.info(s"Total duration of a peak of $nbRequests requests = ${timer.duration}")
+          peaksToDo -= 1
+          // start another peak if we need to
+          if (peaksToDo > 0) {
+            log.debug("Starting the next peak")
+            self ! "go"
+          } else {
+            log.debug("Done")
+          }
         }
       }
     case x => log.error(s"Received unknown message: $x")
