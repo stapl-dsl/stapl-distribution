@@ -92,8 +92,8 @@ class Timer(label: String = "unnamed-timer") {
     "nbSent" -> JsNumber(nbSent),
     "nbReceived" -> JsNumber(count),
     "mean" -> JsNumber(mean),
-    "confInt" -> JsNumber(confInt()),
-    "values" -> JsArray(timings.map(JsNumber(_)).toVector)).compactPrint
+    "confInt" -> JsNumber(confInt())/*,
+    "values" -> JsArray(timings.map(JsNumber(_)).toVector)*/).compactPrint
 
   def printAllMeasurements() = {
     timings.foreach(println(_))
