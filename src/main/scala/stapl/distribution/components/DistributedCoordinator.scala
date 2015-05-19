@@ -36,6 +36,12 @@ import stapl.distribution.util.Tracer
  *  Notice: for now, we do not support adding or removing coordinators from the group
  *  at run-time, i.e., all coordinators should be set up before the first request is sent
  *  in order to avoid concurrency issues.
+ *
+ *  THIS CLASS IS THE MAIN COORDINATOR CLASS, EVEN THOUGH IT IS CALLED "DISTRIBUTED"COORDINATOR.
+ *  THIS CLASS CAN BE USED AS A STAND-ALONE COORDINATOR OR IN CONJUNCTION WITH OTHER COORDINATORS.
+ *  THIS CLASS CAN MANAGE ITS OWN WORKERS AND MANAGE FOREMEN THAT MANAGE WORKERS.
+ *
+ *  TODO The foremen functionality is not integrated completely yet, e.g., the stats. Check and complete!
  */
 class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWorkers: Int,
   pool: AttributeDatabaseConnectionPool, coordinatorManager: ActorRef,
@@ -47,6 +53,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
   import ClientCoordinatorProtocol._
   import ConcurrentCoordinatorProtocol._
   import InternalCoordinatorProtocol._
+  import CoordinatorForemanProtocol._
   import scala.collection.mutable.Map
 
   // start by registering to the DistributedCoordinatorManager
@@ -107,13 +114,24 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
   }
 
   /**
-   * Notifies workers that there's work available, provided they're
+   * ********************************
+   * Our foremen
+   */
+
+  /**
+   *  Holds known foremen and what they may be working on
+   */
+  private val foremen = new ForemanAdministration
+
+  /**
+   * Notifies workers AND FOREMEN that there's work available, provided they're
    * not already working on something
    */
   def notifyWorkers(): Unit = {
     if (!(externalWorkQ.isEmpty && internalWorkQ.isEmpty)) {
       // we have some work, be it received from a worker or from a foreman
       workers.idle foreach { _ ! ForemanWorkerProtocol.WorkIsReady }
+      foremen.idle foreach { _ ! CoordinatorForemanProtocol.WorkIsReady }
     }
   }
 
@@ -133,8 +151,8 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
    * *********************************
    * Our ConcurrencyController
    */
-  private val concurrencyController = if(mockChanceOfConflict >= 0 && mockChanceOfConflict <= 1) {
-    log.info(f"Using a MockConcurrecyController with chance of conflict = ${mockChanceOfConflict*100}%2.2f%%")
+  private val concurrencyController = if (mockChanceOfConflict >= 0 && mockChanceOfConflict <= 1) {
+    log.info(f"Using a MockConcurrecyController with chance of conflict = ${mockChanceOfConflict * 100}%2.2f%%")
     new MockConcurrentConcurrencyController(mockChanceOfConflict)
   } else {
     log.debug("Using a normal concurrency controller (not a MockConcurrencyController).")
@@ -166,7 +184,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      */
     case ForemanWorkerProtocol.WorkerIsDoneAndRequestsWork(worker) =>
       log.debug(s"A worker finished his work: $worker")
-      workerStats.stop(worker)
+      workerStats.stop(worker) // TODO extend these stats with the foremen
       workers.setIdle(worker)
       self ! ForemanWorkerProtocol.WorkerRequestsWork(worker)
 
@@ -196,6 +214,73 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
         }
       } else {
         log.debug(s"A busy worker requests work: $worker => not sending him work")
+      }
+
+    /**
+     * From a Foreman.
+     *
+     * Worker is alive. Add him to the list, watch him for
+     * death, and let him know if there's work to be done
+     */
+    case ForemanCreated(foreman) =>
+      log.debug(s"Foreman created: $foreman")
+      context.watch(foreman)
+      foremen += foreman
+      notifyWorkers
+
+    /**
+     * From a Foreman.
+     *
+     * A worker wants more work.  If we know about him, he's not
+     * currently doing anything, and we've got something to do,
+     * give it to him.
+     */
+    case ForemanRequestsWork(foreman, nbRequests) =>
+      log.debug(s"Foreman requests work: $foreman -> $nbRequests requests")
+      // our prioritization between internal requests and external requests:
+      // give internal requests priority in order to keep the total latency
+      // of policy evaluations minimal
+      if (!internalWorkQ.isEmpty) {
+        val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
+        for (i <- List.range(0, nbRequests)) {
+          if (!internalWorkQ.isEmpty) {
+            workBuffer += internalWorkQ.dequeue
+          }
+        }
+        val work = workBuffer.toList
+        foremen.foremanStartedWorkingOn(foreman, work)
+        foreman ! CoordinatorForemanProtocol.WorkToBeDone(work)
+        for ((request, client) <- work) {
+          log.debug(s"[Evaluation ${request.id}] Sent request to foreman $foreman for evaluation")
+        }
+      } else if (!externalWorkQ.isEmpty) {
+        val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
+        for (i <- List.range(0, nbRequests)) {
+          if (!externalWorkQ.isEmpty) {
+            workBuffer += externalWorkQ.dequeue
+          }
+        }
+        val work = workBuffer.toList
+        foremen.foremanStartedWorkingOn(foreman, work)
+        foreman ! CoordinatorForemanProtocol.WorkToBeDone(work)
+        for ((request, client) <- work) {
+          log.debug(s"[Evaluation ${request.id}] Sent request to foreman $foreman for evaluation")
+        }
+      }
+
+    /**
+     * From a Foreman.
+     *
+     * Worker has completed its work and we can clear it out
+     */
+    case ForemanIsDoneAndRequestsWork(foreman, nbRequests) =>
+      log.debug(s"Foreman is done and requests more work: $foreman")
+      if (!foremen.contains(foreman)) {
+        log.error(s"Blurgh! $foreman said it's done work but we didn't know about him")
+      } else {
+        foremen.foremanIsNowIdle(foreman)
+        // send the worker some work
+        self ! ForemanRequestsWork(foreman, nbRequests)
       }
 
     /**

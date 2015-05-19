@@ -134,7 +134,8 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
   override def preStart() = {
     // create our workers
     1 to nbWorkers foreach { _ =>
-      workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection)) // TODO pass policy and attribute cache
+      workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, /* enableStatsDb */ false,
+      /* mockEvaluation */ false, /* mockEvaluationDuration */ 0)) 
     }
     // notify the coordinator
     coordinator ! CoordinatorForemanProtocol.ForemanCreated(self)
@@ -165,6 +166,9 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
      */
     case CoordinatorForemanProtocol.WorkToBeDone(requests: List[(PolicyEvaluationRequest, coordinator)]) =>
       log.debug(s"The coordinator sent work: $requests")
+      for ((request, client) <- requests) {
+        log.debug(s"[Evaluation ${request.id}] Received request at foreman")
+      }
       externalWorkQ ++= requests
       notifyWorkers
 

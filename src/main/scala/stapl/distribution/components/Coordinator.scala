@@ -409,7 +409,7 @@ class Coordinator(pool: AttributeDatabaseConnectionPool, nbUpdateWorkers: Int, d
   import CoordinatorForemanProtocol._
 
   /**
-   *  Holds known workers and what they may be working on
+   *  Holds known foremen and what they may be working on
    */
   private val foremen = new ForemanAdministration
 

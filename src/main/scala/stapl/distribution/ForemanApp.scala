@@ -29,7 +29,7 @@ import stapl.distribution.db.MySQLAttributeDatabaseConnectionPool
 case class ForemanConfig(name: String = "not-provided",
   hostname: String = "not-provided", port: Int = -1,
   foremanManagerIP: String = "not-provided", foremanManagerPort: Int = -1, foremanManagerPath: String = "not-provided",
-  nbWorkers: Int = -1, policy: String = "not-provided", databaseIP: String = "not-provided",
+  nbWorkers: Int = -1, policy: String = "ehealth", databaseIP: String = "not-provided",
   databasePort: Int = -1, databaseType: String = "not-provided",
   logLevel: String = "INFO")
 
@@ -90,12 +90,6 @@ object ForemanApp {
         if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
       } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
       
-      opt[String]("db-type") required () action { (x, c) =>
-        c.copy(databaseType = x)
-      } validate { x =>
-        if (dbTypes.contains(x)) success else failure(s"Invalid database type given. Possible values: $dbTypes")
-      } text (s"The type of database to employ. Valid values: $dbTypes")
-      
       opt[String]("log-level") action { (x, c) =>
         c.copy(logLevel = x)
       } validate { x =>
@@ -113,28 +107,15 @@ object ForemanApp {
         akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("Foreman", customConf)
-
-      val db: AttributeDatabaseConnectionPool = config.databaseType match {
-        case "hazelcast" => 
-          val cfg = new Config()
-          cfg.getNetworkConfig().getJoin().getMulticastConfig().setEnabled(false)
-          cfg.getNetworkConfig().getJoin().getTcpIpConfig().setEnabled(true).addMember(config.foremanManagerIP)
-          val mapCfg = new MapConfig("stapl-attributes")
-          mapCfg.setMapStoreConfig(new MapStoreConfig()
-            .setEnabled(true)
-            .setImplementation(new AttributeMapStore(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")))
-          cfg.addMapConfig(mapCfg)
-          val hazelcast = Hazelcast.newHazelcastInstance(cfg)
-          new HazelcastAttributeDatabaseConnectionPool(hazelcast)
-        case "mysql" => new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")          
-      }
+      
+      val pool: AttributeDatabaseConnectionPool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
 
       val selection =
         system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.foremanManagerIP}:${config.foremanManagerPort}/user/${config.foremanManagerPath}")
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), db), "foreman")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), pool), "foreman")
           println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers (log-level: ${config.logLevel})")
         case Failure(t) =>
           t.printStackTrace()
