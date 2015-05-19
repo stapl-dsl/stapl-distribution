@@ -80,7 +80,7 @@ object OverheadCentralCoordinatorUsingSequentialClientApp extends App with Loggi
 
     val coordinator = system.actorOf(Props(classOf[DistributedCoordinator], naturalPolicy,
       1, 1, pool, coordinatorManager,
-      false, false, -1, false, false, false, true /* mock evaluation */ , 0 /* 0 ms */ ), "coordinator")
+      false, false, -1, false, false, false, true /* mock evaluation */ , 0 /* 0 ms */, -1.0), "coordinator")
 
     implicit val timeout = Timeout(2.second)
     implicit val ec = system.dispatcher
