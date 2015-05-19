@@ -223,7 +223,7 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * death, and let him know if there's work to be done
      */
     case ForemanCreated(foreman) =>
-      log.debug(s"Foreman created: $foreman")
+      log.warning(s"Foreman created: $foreman")
       context.watch(foreman)
       foremen += foreman
       notifyWorkers

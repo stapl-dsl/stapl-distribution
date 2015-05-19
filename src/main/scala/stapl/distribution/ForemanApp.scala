@@ -31,6 +31,7 @@ case class ForemanConfig(name: String = "not-provided",
   foremanManagerIP: String = "not-provided", foremanManagerPort: Int = -1, foremanManagerPath: String = "not-provided",
   nbWorkers: Int = -1, policy: String = "ehealth", databaseIP: String = "not-provided",
   databasePort: Int = -1, databaseType: String = "not-provided",
+  mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0,
   logLevel: String = "INFO")
 
 object ForemanApp {
@@ -40,62 +41,73 @@ object ForemanApp {
       "ehealth" -> EhealthPolicy.naturalPolicy,
       "chinese-wall" -> ConcurrencyPolicies.chineseWall,
       "count" -> ConcurrencyPolicies.maxNbAccess)
-      
+
     val dbTypes = List("hazelcast", "mysql")
-      
+
     val logLevels = List("OFF", "ERROR", "WARNING", "INFO", "DEBUG")
 
     val parser = new scopt.OptionParser[ForemanConfig]("scopt") {
       head("STAPL - coordinator")
-      
+
       opt[String]("name") required () action { (x, c) =>
         c.copy(name = x)
       } text ("The name of this foreman. This is used for debugging.")
-      
+
       opt[String]("hostname") required () action { (x, c) =>
         c.copy(hostname = x)
       } text ("The hostname of the machine on which this foreman is run. This hostname will be used by other actors in their callbacks, so it should be externally accessible if you deploy the components on different machines.")
-      
+
       opt[Int]("port") required () action { (x, c) =>
         c.copy(port = x)
       } text ("The port on which this foreman will be listening. 0 for a random port")
-      
+
       opt[String]("foreman-manager-ip") required () action { (x, c) =>
         c.copy(foremanManagerIP = x)
       } text ("The IP address of the machine on which the foreman manager is running.")
-      
+
       opt[Int]("foreman-manager-port") required () action { (x, c) =>
         c.copy(foremanManagerPort = x)
       } text ("The port on which the foreman manager is listening.")
-      
+
       opt[String]("foreman-manager-path") required () action { (x, c) =>
         c.copy(foremanManagerPath = x)
       } text ("The Akka actor path of the foreman manager after /user/")
-      
+
       opt[String]("database-ip") required () action { (x, c) =>
         c.copy(databaseIP = x)
       } text ("The IP address of the machine on which the database containing the attributes is running.")
-      
+
       opt[Int]("database-port") required () action { (x, c) =>
         c.copy(databasePort = x)
       } text ("The port on which the database containing the attributes is listening.")
-      
+
       opt[Int]("nb-workers") required () action { (x, c) =>
         c.copy(nbWorkers = x)
       } text ("The number of workers to spawn for this foreman.")
-      
+
       opt[String]("policy") required () action { (x, c) =>
         c.copy(policy = x)
       } validate { x =>
         if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
       } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
-      
+
+      opt[Unit]("mock-evaluation") action { (x, c) =>
+        c.copy(mockEvaluation = true)
+      } text (s"Flag to indicate that the coordinator should pass the work to workers, " +
+        "but that these workers should not evaluate the actual policy and just return a mock decision " +
+        "to the coordinator immediately. This option is ignored if --mock-desision is set as well, since " +
+        "the request will never reach the workers.")
+
+      opt[Int]("mock-evaluation-duration") action { (x, c) =>
+        c.copy(mockEvaluationDuration = x)
+      } text ("The duration of a mock evaluation in ms. Default: 0ms. Only used when --mock-evaluation-duration is set.")
+
       opt[String]("log-level") action { (x, c) =>
         c.copy(logLevel = x)
       } validate { x =>
         if (logLevels.contains(x)) success else failure(s"Invalid log level given. Possible values: $logLevels")
       } text (s"The log level. Valid values: $logLevels")
-      
+
       help("help") text ("prints this usage text")
     }
     // parser.parse returns Option[C]
@@ -107,7 +119,7 @@ object ForemanApp {
         akka.loglevel = ${config.logLevel}
       """).withFallback(defaultConf)
       val system = ActorSystem("Foreman", customConf)
-      
+
       val pool: AttributeDatabaseConnectionPool = new MySQLAttributeDatabaseConnectionPool(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root")
 
       val selection =
@@ -115,8 +127,12 @@ object ForemanApp {
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), pool), "foreman")
-          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers (log-level: ${config.logLevel})")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), pool, config.mockEvaluation, config.mockEvaluationDuration), "foreman")
+          var mockString = "";
+          if (config.mockEvaluation) {
+            mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}ms"
+          }
+          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers (log-level: ${config.logLevel}$mockString)")
         case Failure(t) =>
           t.printStackTrace()
           system.shutdown

@@ -303,7 +303,7 @@ class InitialPeakClientForCoordinatorGroup(coordinators: CoordinatorGroup, nbWar
       if (waitingForWarmups > 0) {
         // we are still in the warmup phase
         waitingForWarmups -= 1
-        if(waitingForWarmups == 0) {
+        if (waitingForWarmups == 0) {
           self ! "go-after-warmup"
         }
       } else {
@@ -333,6 +333,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
   val timer = new Timer
   var waitingFor = nbRequests
   var warmupPeaksToDo = nbWarmupPeaks
+  var atWarmup = if (nbWarmupPeaks > 0) true else false
   var peaksToDo = if (nbPeaks == 0) Double.PositiveInfinity else nbPeaks
 
   val coordinatorCounter = new Counter("Different coordinators", 10000, false)
@@ -349,7 +350,9 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
       }
     case AuthorizationDecision(id, decision) =>
       waitingFor -= 1
-      stats ! EvaluationEnded() // note: the duration does not make sense for the IntialPeakClient
+      if (!atWarmup) {
+        stats ! EvaluationEnded() // note: the duration does not make sense for the ContinuousOverloadClient
+      }
       log.debug(s"$waitingFor")
       if (waitingFor == 0) {
         if (warmupPeaksToDo > 0) {
@@ -357,6 +360,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
           warmupPeaksToDo -= 1
           if (warmupPeaksToDo == 0) {
             println("End of warm-up phase")
+            atWarmup = false
             timer.stop
             timer.reset
           }

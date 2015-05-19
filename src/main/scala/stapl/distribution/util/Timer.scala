@@ -129,8 +129,11 @@ class Timer(label: String = "unnamed-timer") {
     timings.foreach(println(_))
   }
 
-  def printHistogram(binSize: Double) = {
+  def printHistogram(binSize: Double): Unit = {
     val max = timings.foldLeft(0.0)((a, b) => math.max(a, b))
+    if(max <= 0) { // this can happen in case we don't care for latencies but still use this timer 
+      return
+    }
     //val min = timings.foldLeft(Double.MaxValue)((a,b) => math.min(a,b))
     val min = 0
     val nbBins = math.ceil(max / binSize).toInt

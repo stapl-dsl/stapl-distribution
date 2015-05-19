@@ -80,7 +80,8 @@ class WorkerManager {
  * the coordinator and distributes the work received from that coordinator
  * amongst multiple policy evaluator actors on its machine.
  */
-class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, pool: AttributeDatabaseConnectionPool) extends Actor with ActorLogging {
+class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, pool: AttributeDatabaseConnectionPool,
+  mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
 
   //  /**
   //   * The database connections for the workers
@@ -102,7 +103,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
   /**
    * Some statistics of the throughput
    */
-  private val stats = new ThroughputAndLatencyStatistics
+  private val stats = new ThroughputAndLatencyStatistics("foreman stats", 5000)
 
   /**
    * Returns whether we should preventively request more work because of
@@ -135,7 +136,7 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
     // create our workers
     1 to nbWorkers foreach { _ =>
       workers += context.actorOf(Props(classOf[Worker], self, policy, null, pool.getConnection, /* enableStatsDb */ false,
-      /* mockEvaluation */ false, /* mockEvaluationDuration */ 0)) 
+        mockEvaluation, mockEvaluationDuration))
     }
     // notify the coordinator
     coordinator ! CoordinatorForemanProtocol.ForemanCreated(self)

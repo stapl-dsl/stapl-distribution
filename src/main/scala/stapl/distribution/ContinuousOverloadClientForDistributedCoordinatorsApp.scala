@@ -18,6 +18,7 @@ import akka.pattern.AskTimeoutException
 import akka.routing.BroadcastPool
 import akka.actor.actorRef2Scala
 import stapl.distribution.util.Timer
+import stapl.distribution.util.LatencyStatisticsActor
 import akka.pattern.ask
 import stapl.distribution.components.ContinuousOverloadClientForCoordinatorGroup
 import stapl.distribution.components.HazelcastDistributedCoordinatorLocater
@@ -150,14 +151,15 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
 //        case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
 //      }
       val em = EhealthEntityManager(true)
-      val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor],"Continuous overload clients",config.statsInterval,10,true))
+      //val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor],"Continuous overload clients",config.statsInterval,10,true))
+      val stats = system.actorOf(Props(classOf[LatencyStatisticsActor], "Continuous overload client", config.nbPeaks * config.nbRequests))
       // tactic: run two peak clients in parallel that each handle half of the peaks
       // Start these clients with a time difference in order to guarantee that the 
       // coordinator is continuously overloaded
       val client1 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbWarmupPeaks, config.nbPeaks / 2, stats), "client1")
       val client2 = system.actorOf(Props(classOf[ContinuousOverloadClientForCoordinatorGroup], coordinatorLocater, em, config.nbRequests, config.nbWarmupPeaks, config.nbPeaks - (config.nbPeaks / 2), stats), "client2")
             
-      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinatorLocater.coordinators.size} coordinators after ${config.nbWarmupPeaks} warmup requests (log-level: ${config.logLevel})")
+      println(s"Continuous overload client started at ${config.hostname}:${config.port} doing ${config.nbPeaks} peaks of each ${config.nbRequests} ${config.requestPool} requests to a group of ${coordinatorLocater.coordinators.size} coordinators after ${config.nbWarmupPeaks} warmup peak (log-level: ${config.logLevel})")
       if(config.waitForGo) {
         println("Press any key to start generating load")
         Console.readLine()
