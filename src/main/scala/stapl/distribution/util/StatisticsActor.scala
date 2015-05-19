@@ -26,6 +26,7 @@ class LatencyStatisticsActor(name: String, printAfterNbRequests: Int = -1) exten
     case EvaluationEnded(duration) => {
       stats += duration
       if (stats.count == printAfterNbRequests) {
+        println("#! Histogram")
         stats.printHistogram(0.5)
         println("#! Results")
         println(stats.toJSON())
