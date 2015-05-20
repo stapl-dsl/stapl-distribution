@@ -146,11 +146,10 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
           return
       }
       
-//      val em = config.requestPool match {
-//        case "ehealth" => EhealthEntityManager()
-//        case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
-//      }
-      val em = EhealthEntityManager(true)
+      val em = config.requestPool match {
+        case "ehealth" => EhealthEntityManager(true)
+        case "artificial" => ArtificialEntityManager(config.nbArtificialSubjects, config.nbArtificialResources)
+      }
       //val stats = system.actorOf(Props(classOf[ThroughputAndLatencyStatisticsActor],"Continuous overload clients",config.statsInterval,10,true))
       val stats = system.actorOf(Props(classOf[LatencyStatisticsActor], "Continuous overload client", config.nbPeaks * config.nbRequests))
       // tactic: run two peak clients in parallel that each handle half of the peaks
