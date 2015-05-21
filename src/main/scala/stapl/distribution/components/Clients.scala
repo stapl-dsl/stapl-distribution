@@ -369,6 +369,7 @@ class ContinuousOverloadClientForCoordinatorGroup(coordinators: CoordinatorGroup
           timer.stop()
           log.info(s"Total duration of a peak of $nbRequests requests = ${timer.last}")
           peaksToDo -= 1
+          println(f"Done peak ${nbPeaks - peaksToDo}%.0f/$nbPeaks")
           // start another peak if we need to
           if (peaksToDo > 0) {
             log.debug("Starting the next peak")
