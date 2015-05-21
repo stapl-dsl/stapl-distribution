@@ -92,7 +92,7 @@ class ForemanAdministration {
   /**
    * Returns the idle foremen.
    */
-  def idle = foremen.filter(_._2.isEmpty).keys
+  def idle = foremen.filter(_._2.isEmpty).keys.toList
 
   /**
    * Returns whether the given foremen is idle.

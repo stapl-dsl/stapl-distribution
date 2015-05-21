@@ -194,6 +194,8 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      * Give him work if we have some.
      */
     case ForemanWorkerProtocol.WorkerRequestsWork(worker) =>
+      // this test is needed because multiple WorkIsReady messages can be sent at once, 
+      // which would lead to multiple WorkerRequestsWork messages afterwards
       if (workers.idleWorkers.contains(worker)) {
         log.debug(s"An idle worker requests work: $worker => let's see whether I can send him some work")
         // our prioritization between internal requests and external requests:
@@ -237,34 +239,38 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
      */
     case ForemanRequestsWork(foreman, nbRequests) =>
       log.debug(s"Foreman requests work: $foreman -> $nbRequests requests")
-      // our prioritization between internal requests and external requests:
-      // give internal requests priority in order to keep the total latency
-      // of policy evaluations minimal
-      if (!internalWorkQ.isEmpty) {
-        val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
-        for (i <- List.range(0, nbRequests)) {
-          if (!internalWorkQ.isEmpty) {
-            workBuffer += internalWorkQ.dequeue
+      // this test is needed because multiple WorkIsReady messages can be sent at once, 
+      // which would lead to multiple WorkerRequestsWork messages afterwards
+      if (foremen.idle.contains(foreman)) {
+        // our prioritization between internal requests and external requests:
+        // give internal requests priority in order to keep the total latency
+        // of policy evaluations minimal
+        if (!internalWorkQ.isEmpty) {
+          val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
+          for (i <- List.range(0, nbRequests)) {
+            if (!internalWorkQ.isEmpty) {
+              workBuffer += internalWorkQ.dequeue
+            }
           }
-        }
-        val work = workBuffer.toList
-        foremen.foremanStartedWorkingOn(foreman, work)
-        foreman ! CoordinatorForemanProtocol.WorkToBeDone(work)
-        for ((request, client) <- work) {
-          log.debug(s"[Evaluation ${request.id}] Sent request to foreman $foreman for evaluation")
-        }
-      } else if (!externalWorkQ.isEmpty) {
-        val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
-        for (i <- List.range(0, nbRequests)) {
-          if (!externalWorkQ.isEmpty) {
-            workBuffer += externalWorkQ.dequeue
+          val work = workBuffer.toList
+          foremen.foremanStartedWorkingOn(foreman, work)
+          foreman ! CoordinatorForemanProtocol.WorkToBeDone(work)
+          for ((request, client) <- work) {
+            log.debug(s"[Evaluation ${request.id}] Sent request to foreman $foreman for evaluation")
           }
-        }
-        val work = workBuffer.toList
-        foremen.foremanStartedWorkingOn(foreman, work)
-        foreman ! CoordinatorForemanProtocol.WorkToBeDone(work)
-        for ((request, client) <- work) {
-          log.debug(s"[Evaluation ${request.id}] Sent request to foreman $foreman for evaluation")
+        } else if (!externalWorkQ.isEmpty) {
+          val workBuffer = ListBuffer[(PolicyEvaluationRequest, ActorRef)]()
+          for (i <- List.range(0, nbRequests)) {
+            if (!externalWorkQ.isEmpty) {
+              workBuffer += externalWorkQ.dequeue
+            }
+          }
+          val work = workBuffer.toList
+          foremen.foremanStartedWorkingOn(foreman, work)
+          foreman ! CoordinatorForemanProtocol.WorkToBeDone(work)
+          for ((request, client) <- work) {
+            log.debug(s"[Evaluation ${request.id}] Sent request to foreman $foreman for evaluation")
+          }
         }
       }
 
@@ -550,3 +556,62 @@ class DistributedCoordinator(policy: AbstractPolicy, nbWorkers: Int, nbUpdateWor
 
   log.debug(s"$self: I'm alive!")
 }
+
+///**
+// * Class used for managing workers.
+// *
+// * This class is an update of ForemanAdministration to the image of WorkerManager.
+// *
+// * TODO: remove ForemanAdministration
+// */
+//class ForemanManager {
+//
+//  import scala.collection.mutable.Set
+//
+//  val foremen = Set.empty[ActorRef]
+//  val busyForemen = Set.empty[ActorRef]
+//  val idleForemen = Set.empty[ActorRef]
+//
+//  /**
+//   * The total number of foremen
+//   */
+//  def size = foremen.size
+//
+//  /**
+//   * Add a new foreman (as idle).
+//   */
+//  def +=(foreman: ActorRef) = {
+//    foremen += foreman
+//    idleForemen += foreman
+//  }
+//
+//  /**
+//   * Remove a foreman.
+//   */
+//  def -=(foreman: ActorRef) = {
+//    foremen -= foreman
+//    idleForemen -= foreman
+//    busyForemen -= foreman
+//  }
+//
+//  /**
+//   * Return all idle workers.
+//   */
+//  def idle = idleForemen
+//
+//  /**
+//   * Set the given foreman as busy.
+//   */
+//  def setBusy(foreman: ActorRef) {
+//    idleForemen -= foreman
+//    busyForemen += foreman
+//  }
+//
+//  /**
+//   * Set the given foreman as idle.
+//   */
+//  def setIdle(foreman: ActorRef) {
+//    idleForemen += foreman
+//    busyForemen -= foreman
+//  }
+//}
