@@ -79,9 +79,18 @@ class WorkerManager {
  * Class used for representing the actor on a machine that communicates with
  * the coordinator and distributes the work received from that coordinator
  * amongst multiple policy evaluator actors on its machine.
+ *
+ * @param	bufferFactor
+ * 			The buffer factor determines how many messages we want in our buffer per worker.
+ * 			For example, a buffer factor of 2 for a foreman with 4 workers, will lead to
+ * 			requesting 2*4=8 requests from the coordinator every time, and will lead to a
+ * 			preventive refill of again 8 requests when the internal buffer contains less than
+ * 			8 requests yet. => a higher buffer factor leads to more efficient communication,
+ *    		but more latency in case the system is not 100% under load since the excess
+ *      	request could have been	handled by another foreman in parallel.
  */
 class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, pool: AttributeDatabaseConnectionPool,
-  mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
+  bufferFactor: Int = 2, mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0) extends Actor with ActorLogging {
 
   //  /**
   //   * The database connections for the workers
@@ -110,13 +119,13 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
    * the current contents of the queues and the current number of workers.
    */
   def shouldPreventivelyRefill =
-    // our strategy: count the number of requests from the foreman and the
+    // our strategy: count the number of requests from the coordinator and the
     // number of requests of internal workers and compare that to the number of
     // workers at hand so that there is always new work for the workers to work on
-    // when they finish. However, requests from the foreman are likely to 
+    // when they finish. However, requests from the coordinator are likely to 
     // take longer than intermediate policy evaluation requests of the workers,
     // so weigh those less.
-    (externalWorkQ.size + math.floor(internalWorkQ.size / 2.0)) <= workers.size
+    (externalWorkQ.size + math.floor(internalWorkQ.size / 2.0)) <= workers.size * bufferFactor
 
   /**
    * Notifies workers that there's work available, provided they're
@@ -186,10 +195,10 @@ class Foreman(coordinator: ActorRef, nbWorkers: Int, policy: AbstractPolicy, poo
       // keep the coordinator up-to-date and ask for more work if needed
       if (externalWorkQ.isEmpty && internalWorkQ.isEmpty) {
         log.debug("We're out of work, notify the coordinator of this")
-        coordinator ! CoordinatorForemanProtocol.ForemanIsDoneAndRequestsWork(self, workers.size)
+        coordinator ! CoordinatorForemanProtocol.ForemanIsDoneAndRequestsWork(self, workers.size * bufferFactor)
       } else if (shouldPreventivelyRefill) {
         log.debug(s"We're not ouf of work yet, but ask for more anyway")
-        coordinator ! CoordinatorForemanProtocol.ForemanRequestsWork(self, workers.size)
+        coordinator ! CoordinatorForemanProtocol.ForemanRequestsWork(self, workers.size * bufferFactor)
       }
 
     /**

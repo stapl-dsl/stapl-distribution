@@ -31,6 +31,7 @@ case class ForemanConfig(name: String = "not-provided",
   foremanManagerIP: String = "not-provided", foremanManagerPort: Int = -1, foremanManagerPath: String = "not-provided",
   nbWorkers: Int = -1, policy: String = "ehealth", databaseIP: String = "not-provided",
   databasePort: Int = -1, databaseType: String = "not-provided",
+  bufferFactor: Int = 2, 
   mockEvaluation: Boolean = false, mockEvaluationDuration: Int = 0,
   logLevel: String = "INFO")
 
@@ -91,6 +92,10 @@ object ForemanApp {
         if (policies.contains(x)) success else failure(s"Invalid policy given. Possible values: ${policies.keys}")
       } text (s"The policy to load in the PDPs. Valid values: ${policies.keys}")
 
+      opt[Int]("buffer-factor") action { (x, c) =>
+        c.copy(bufferFactor = x)
+      } text ("The buffer factor for this foreman (see javadoc of Foreman).")
+
       opt[Unit]("mock-evaluation") action { (x, c) =>
         c.copy(mockEvaluation = true)
       } text (s"Flag to indicate that the coordinator should pass the work to workers, " +
@@ -127,12 +132,12 @@ object ForemanApp {
       implicit val dispatcher = system.dispatcher
       selection.resolveOne(3.seconds).onComplete {
         case Success(coordinator) =>
-          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), pool, config.mockEvaluation, config.mockEvaluationDuration), "foreman")
+          val foreman = system.actorOf(Props(classOf[Foreman], coordinator, config.nbWorkers, policies(config.policy), pool, config.bufferFactor, config.mockEvaluation, config.mockEvaluationDuration), "foreman")
           var mockString = "";
           if (config.mockEvaluation) {
             mockString = f", mocking evaluation with duration = ${config.mockEvaluationDuration}ms"
           }
-          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers (log-level: ${config.logLevel}$mockString)")
+          println(s"Forman ${config.name} up and running at ${config.hostname}:${config.port} with ${config.nbWorkers} workers and buffer factor ${config.bufferFactor} (log-level: ${config.logLevel}$mockString)")
         case Failure(t) =>
           t.printStackTrace()
           system.shutdown
