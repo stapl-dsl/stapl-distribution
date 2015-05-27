@@ -106,6 +106,7 @@ class Worker(foreman: ActorRef, policy: AbstractPolicy, cache: ConcurrentAttribu
       // If we should not mock, do an actual evaluation
       // TODO implement evaluating the policy asked for by the request
       result = pdp.evaluate(request.subjectId, request.actionId, request.resourceId, request.extraAttributes: _*)
+      db.commit()
     }
     // pass the decision directly to the coordinator...
     coordinator ! CoordinatorForemanProtocol.PolicyEvaluationResult(request.id, result)

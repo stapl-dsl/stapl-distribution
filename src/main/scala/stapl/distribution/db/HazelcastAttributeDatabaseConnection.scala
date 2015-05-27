@@ -162,6 +162,10 @@ class HazelcastAttributeDatabaseConnection(hazelcast: IMap[(String, AttributeCon
   override def close() = {
     // nothing to do (I think)
   }
+  
+  override def commit() {
+    // nothing to do (I think)
+  }
 
   /**
    * Opens a connection, drops the data, commits and closes the connection.

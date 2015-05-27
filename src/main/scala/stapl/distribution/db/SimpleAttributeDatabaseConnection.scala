@@ -22,7 +22,7 @@ class SimpleAttributeDatabaseConnection(initialConnection: Connection, readonly:
   initialConnection.setReadOnly(readonly)
   initialConnection.setAutoCommit(true)
 
-  private var conn: Connection = initialConnection
+  protected var conn: Connection = initialConnection
   private var getStringAttributeStmt: PreparedStatement = initialConnection.prepareStatement("SELECT * FROM attributes WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
   private var storeAttributeStmt: PreparedStatement = initialConnection.prepareStatement("INSERT INTO attributes VALUES (default, ?, ?, ?, ?);")
   private var updateAttributeStmt: PreparedStatement = initialConnection.prepareStatement("UPDATE attributes SET attribute_value=? WHERE entity_id=? && attribute_container_type=? && attribute_key=?;")
@@ -30,7 +30,7 @@ class SimpleAttributeDatabaseConnection(initialConnection: Connection, readonly:
   /**
    * Commits all operations.
    */
-  def commit(): Unit = {
+  override def commit(): Unit = {
     // don't do anything because a SimpleAttributeDatabaseConnection is always in autocommit.
   }
 

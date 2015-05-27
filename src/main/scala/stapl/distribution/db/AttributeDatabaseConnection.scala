@@ -31,6 +31,12 @@ abstract class AttributeDatabaseConnection extends Logging {
    * Closes this attribute database connection.
    */
   def close()
+  
+  /**
+   * Commits the operations on the database. The behavior depends on the
+   * specific subclass.
+   */
+  def commit()
 
   /**
    * Fetches a string attribute from the database using the connection of this database.
