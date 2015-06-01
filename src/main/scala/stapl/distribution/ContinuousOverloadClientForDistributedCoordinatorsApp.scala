@@ -137,8 +137,8 @@ object ContinuousOverloadClientForDistributedCoordinatorsApp {
       val coordinatorLocater = new SimpleDistributedCoordinatorLocater
       val selection = system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorManagerIP}:${config.coordinatorManagerPort}/user/distributed-coordinator-manager")
       implicit val dispatcher = system.dispatcher
-      implicit val timeout = Timeout(20.second)
-      val coordinatorManager = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+      implicit val timeout = Timeout(30.second)
+      val coordinatorManager = Await.result(selection.resolveOne(20.seconds), 25.seconds)
       // reconfigure the manager if asked for
       if (config.nbCoordinators > 0) {
         Await.result(coordinatorManager ? SetNumberCoordinators(config.nbCoordinators), 180 seconds) match {
