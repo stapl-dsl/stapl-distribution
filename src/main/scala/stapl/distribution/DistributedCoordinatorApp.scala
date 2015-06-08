@@ -208,7 +208,7 @@ object DistributedCoordinatorApp {
           // we should connect to the master coordinatorManager otherwise
           val selection = system.actorSelection(s"akka.tcp://STAPL-coordinator@${config.coordinatorManagerIP}:${config.coordinatorManagerPort}/user/distributed-coordinator-manager")
           implicit val dispatcher = system.dispatcher
-          val result = Await.result(selection.resolveOne(3.seconds), 5.seconds)
+          val result = Await.result(selection.resolveOne(60.seconds), 65.seconds)
           println(s"Connected to master coordinatorManager at ${config.coordinatorManagerIP}:${config.coordinatorManagerPort}")
           result
       }
