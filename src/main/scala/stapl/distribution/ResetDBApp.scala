@@ -23,16 +23,34 @@ import stapl.distribution.db.AttributeDatabaseConnection
 import grizzled.slf4j.Logging
 import stapl.distribution.db.LegacyAttributeDatabaseConnection
 
+case class ResetDBAppConfig(databaseIP: String = "not-provided", databasePort: Int = -1)
+
 object ResetDBApp extends App with Logging {
-  
-  val db = new LegacyAttributeDatabaseConnection("localhost", 3306, "stapl-attributes", "root", "root", false /* not autocommit */)
-  db.open
-  info("Resetting databases")
-  db.cleanStart
-  info("Persisting entity data")
-  stapl.distribution.db.entities.ehealth.EhealthEntityManager(true).persist(db) // the LARGE set of entities
-  stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager().persist(db)
-  db.commit
-  db.close
-  info("Done")
+
+  val parser = new scopt.OptionParser[ResetDBAppConfig]("ResetDBApp") {
+    head("STAPL - Reset database")
+
+    opt[String]("database-ip") required () action { (x, c) =>
+      c.copy(databaseIP = x)
+    } text ("The IP address of the machine on which the database containing the attributes is running.")
+
+    opt[Int]("database-port") required () action { (x, c) =>
+      c.copy(databasePort = x)
+    } text ("The port on which the database containing the attributes is listening.")
+  }
+  // parser.parse returns Option[C]
+  parser.parse(args, ResetDBAppConfig()) map { config =>
+    val db = new LegacyAttributeDatabaseConnection(config.databaseIP, config.databasePort, "stapl-attributes", "root", "root", false /* not autocommit */ )
+    db.open
+    info("Resetting databases")
+    db.cleanStart
+    info("Persisting entity data")
+    stapl.distribution.db.entities.ehealth.EhealthEntityManager(true).persist(db) // the LARGE set of entities
+    stapl.distribution.db.entities.concurrency.ConcurrencyEntityManager().persist(db)
+    db.commit
+    db.close
+    info("Done")
+  } getOrElse {
+    // arguments are bad, error message will have been displayed
+  }
 }
