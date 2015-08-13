@@ -2,7 +2,7 @@
 
 This repository contains the code to correctly evaluate STAPL policies concurrently or distributedly. To be clear, this is not some kind of distribution of STAPL :)
 
-## Why do we need specialized components to evaluate STAPL policies concurrently?
+### Why do we need specialized components to evaluate STAPL policies concurrently?
 
 Evaluating an access control policy concurrently or distributedly is trivial in case these policies only read data. History-based policies such as Chinese Wall policies however also update data as a result of policy evaluation. For example, take the following policy:
 
@@ -14,9 +14,9 @@ For these policies, one evaluation of the policy influences future evaluations, 
 
 For more information, we refer to our paper on the Annual Computer Security Applications Conference (ACSAC) 2015 (the link is coming soon).
 
-## Building this code
+### Building this code
 
-The code in this repository depends on the other STAPL repositories. To install and compile this repository, run:
+The code in this repository depends on the other STAPL repositories. To install and compile this repository, first make sure you have the Java SDK, Git and Maven installed, then run:
 
 ```
 git clone https://github.com/stapl-dsl/stapl-core.git
@@ -38,7 +38,7 @@ mvn package
 
 These commands will generate `stapl-distribution-0.0.1-SNAPSHOT-allinone.jar` located in `stapl-distribution/target/`.
 
-## Running the code
+### Running the code
 
 The code provides three different components that can separately be deployed on different machines (or the same machine) and can work together. These components are:
 
@@ -94,6 +94,6 @@ java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jar stapl.distribution.Seque
 
 This single command will start 20 parallel clients that will each send a requests one after the other. More precisely, each client will send 100 warm-up requests and then 1000 requests of which the statistics will be printed out in the end.
 
-## Further questions?
+### Further questions?
 
 To be clear, the code in this repository is still prototype-quality. If you have any questions, just ask.
