@@ -63,7 +63,7 @@ To run the code, decide on which machines you want a client, a coordinator and/o
 Run these main classes with stapl-distribution-0.0.1-SNAPSHOT-allinone.jar on the class path, for example:
 
 ```
-java -cp stapl-distribution-0.0.1-SNAPSHOT-linone.jar stapl.distribution.DistributedCoordinatorApp
+java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jar stapl.distribution.DistributedCoordinatorApp
 ```
 
 Run each of these commands to view the required parameters.
