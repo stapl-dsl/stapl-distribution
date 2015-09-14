@@ -89,7 +89,7 @@ Set `--log-level` to `DEBUG` to see debugging info about policy evaluations and 
 Then, in a different terminal on the same host, start the client:
 
 ```
-java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jar stapl.distribution.SequentialClientForDistributedCoordinatorsApp --ip 127.0.0.1 --port 0 --coordinator-manager-ip 127.0.0.1 --coordinator-manager-port 2552 --nb-threads 20 --nb-warmup-runs 100 --nb-runs 1000
+java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jar stapl.distribution.SequentialClientForDistributedCoordinatorsApp --ip 127.0.0.1 --port 0 --coordinator-manager-ip 127.0.0.1 --coordinator-manager-port 2552 --nb-coordinators 1 --nb-threads 20 --nb-warmup-runs 100 --nb-runs 1000
 ```
 
 This single command will start 20 parallel clients that will each send a requests one after the other. More precisely, each client will send 100 warm-up requests and then 1000 requests of which the statistics will be printed out in the end.
