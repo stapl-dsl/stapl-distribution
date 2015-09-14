@@ -81,7 +81,7 @@ java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jar stapl.distribution.Reset
 Then start the coordinator with three workers:
 
 ```
-java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jarstapl.distribution.DistributedCoordinatorApp --hostname coordinator.stapl --ip 127.0.0.1 --port 2552 --nb-workers 3 --nb-update-workers 1 --database-ip 127.0.0.1 --database-port 3306 --db-type mysql --policy ehealth --log-level INFO
+java -cp stapl-distribution-0.0.1-SNAPSHOT-allinone.jar stapl.distribution.DistributedCoordinatorApp --hostname coordinator.stapl --ip 127.0.0.1 --port 2552 --nb-workers 3 --nb-update-workers 1 --database-ip 127.0.0.1 --database-port 3306 --db-type mysql --policy ehealth --log-level INFO
 ```
 
 Set `--log-level` to `DEBUG` to see debugging info about policy evaluations and concurrency control.
